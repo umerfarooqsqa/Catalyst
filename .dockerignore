@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.env.local
+.env*.local
+npm-debug.log*
+*.md
+!README.md
+scripts
+supabase
+.claude
+.vscode
+QA_Bug_Tracking_List.xlsx

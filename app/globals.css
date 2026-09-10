@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-white text-slate-900 antialiased;
+  font-size: 14px;
+}
+
+/* ---------------------------------------------------------------------
+   Spreadsheet grid — the primary UI metaphor. Dense, gridlined, familiar.
+   --------------------------------------------------------------------- */
+.sheet {
+  @apply w-full border-collapse text-[13px];
+}
+.sheet th,
+.sheet td {
+  @apply border border-grid-line px-2 py-1 text-left align-middle;
+}
+.sheet thead th {
+  @apply sticky top-0 z-20 bg-grid-head font-semibold text-slate-600;
+  white-space: nowrap;
+}
+/* row-number gutter (Excel's 1,2,3 column) */
+.sheet .rownum {
+  @apply sticky left-0 z-10 w-10 min-w-10 bg-grid-head text-center text-xs font-normal text-slate-400;
+}
+.sheet thead .rownum {
+  @apply z-30;
+}
+/* frozen first data column (usually the title) */
+.sheet .freeze {
+  @apply sticky z-10 bg-white;
+  left: 2.5rem; /* width of .rownum */
+}
+.sheet thead .freeze {
+  @apply z-30 bg-grid-head;
+}
+.sheet tbody tr:hover td {
+  @apply bg-brand-soft/40;
+}
+.sheet tbody tr.is-selected td {
+  @apply bg-grid-sel;
+}
+.sheet td.cell-active {
+  outline: 2px solid theme("colors.grid.selline");
+  outline-offset: -2px;
+}
+
+/* in-cell editors sit flush, no chrome, like typing into a spreadsheet cell */
+.cell-input {
+  @apply block w-full min-w-[5.5rem] max-w-full appearance-none bg-transparent px-1 py-0.5
+         text-[13px] leading-tight outline-none;
+}
+.cell-input:focus {
+  @apply bg-white;
+}
+.cell-input:disabled {
+  @apply cursor-default text-slate-700 opacity-100;
+}
+select.cell-input {
+  @apply -mx-0.5 cursor-pointer pr-4;
+}
+
+.kbd {
+  @apply inline-flex items-center rounded border border-slate-300 bg-grid-head px-1 font-mono text-[11px] text-slate-600;
+}
+
+/* mobile: let grids scroll horizontally without the page itself scrolling */
+.sheet-wrap {
+  @apply w-full overflow-x-auto;
+  -webkit-overflow-scrolling: touch;
+}
