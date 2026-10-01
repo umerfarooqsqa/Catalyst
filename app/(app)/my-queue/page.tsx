@@ -88,7 +88,7 @@ function QueueCard({
 const BUG_FIELDS =
   "id, title, severity, area, priority, status, due_date, project_id, assignee_id, projects(name, platform), version_confirmed_at, release:releases(version), delegator:profiles!bugs_delegated_by_fkey(full_name), assignee:profiles!bugs_assignee_id_fkey(full_name)";
 const TASK_FIELDS =
-  "id, title, status, priority, due_date, project_id, assignee_id, projects(name, platform), delegator:profiles!tasks_delegated_by_fkey(full_name), assignee:profiles!tasks_assignee_id_fkey(full_name)";
+  "id, title, status, priority, area, due_date, project_id, assignee_id, projects(name, platform), delegator:profiles!tasks_delegated_by_fkey(full_name), assignee:profiles!tasks_assignee_id_fkey(full_name)";
 
 export default async function MyQueuePage() {
   const { userId, level, profile } = await requireProfile();
@@ -294,6 +294,7 @@ export default async function MyQueuePage() {
                   {t.priority ? (
                     <Badge tone={PRIORITY_TONE[t.priority] ?? "slate"}>{titleCase(t.priority)} priority</Badge>
                   ) : null}
+                  <AreaChip area={t.area} />
                   {t.delegator ? <Badge tone="slate">from {t.delegator.full_name}</Badge> : null}
                 </>
               }

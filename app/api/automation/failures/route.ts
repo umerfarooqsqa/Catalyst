@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/admin";
 import { badPlatform, checkAutomationSecret, parsePlatform, resolveRelease } from "@/lib/automation-release";
-import { areaFromTestKey, isBugArea } from "@/lib/bug-area";
+import { areaFromTestKey } from "@/lib/bug-area";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -72,6 +72,10 @@ export async function POST(req: Request) {
     return hits.length === 1 ? hits[0] : null; // unknown or ambiguous: fall back to the automation key
   };
 
+  // Role categories that exist (migration 0043): a guess naming a removed one is dropped.
+  const { data: areaRows } = await supabase.from("role_categories").select("key");
+  const areaKeys = new Set((areaRows ?? []).map((r) => r.key));
+
   for (const f of failures) {
     if (!f.key || !f.title) continue;
     const description = (f.error ?? "").slice(0, 4000) || null;
@@ -83,7 +87,8 @@ export async function POST(req: Request) {
       : await supabase.from("bugs").select(cols).eq("project_id", project.id).eq("automation_key", f.key).maybeSingle();
     if (findErr) return NextResponse.json({ error: findErr.message }, { status: 500 });
 
-    const area = isBugArea(f.area) ? f.area : areaFromTestKey(f.key);
+    const guess = f.area && areaKeys.has(f.area) ? f.area : areaFromTestKey(f.key);
+    const area = guess && areaKeys.has(guess) ? guess : null;
     if (!existing) {
       const { error } = await supabase.from("bugs").insert({
         project_id: project.id,

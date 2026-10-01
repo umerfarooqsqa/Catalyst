@@ -11,6 +11,8 @@ export type ProjectMember = Tables<"project_members">;
 export type Requirement = Tables<"requirements">;
 export type TestCase = Tables<"test_cases">;
 export type BugCategory = Tables<"bug_categories">;
+/** A work area an admin manages (Admin -> Role categories, migration 0043). */
+export type RoleCategory = Tables<"role_categories">;
 export type BasePageEntry = Tables<"base_page">;
 export type AutomationRunner = Tables<"automation_runners">;
 export type TestJob = Tables<"test_jobs">;

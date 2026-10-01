@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AREAS, AREA_LABELS, areaFromTestKey, suggestArea } from "@/lib/bug-area";
+import { areaFromTestKey, isArea, suggestArea } from "@/lib/bug-area";
+import { useRoleCategories } from "@/components/RoleCategories";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge, Button, Card, PageHeader, Stat } from "@/components/ui";
@@ -427,12 +428,15 @@ function FindingItem({
   const [title, setTitle] = useState(f.title.replace(/^Failed: /, ""));
   const [severity, setSeverity] = useState(SEVERITIES.includes(f.severity ?? "") ? f.severity! : "minor");
   // Frontend / backend (migration 0041): from the test's path, else suggested from what it saw.
-  const [area, setArea] = useState<string>(
-    () =>
-      areaFromTestKey(f.test) ??
-      suggestArea(`${f.title} ${f.detail ?? ""} ${f.error ?? ""} ${(f.steps ?? []).join(" ")}`)?.area ??
-      "",
-  );
+  const roleCats = useRoleCategories();
+  const [area, setArea] = useState<string>(() => {
+    const fromTest = areaFromTestKey(f.test);
+    return (
+      (isArea(roleCats, fromTest) ? fromTest : null) ??
+      suggestArea(`${f.title} ${f.detail ?? ""} ${f.error ?? ""} ${(f.steps ?? []).join(" ")}`, roleCats)?.area ??
+      ""
+    );
+  });
   const [description, setDescription] = useState(
     [f.detail, f.error ? `What the test saw:\n${f.error}` : "", f.test ? `Found by the auto-test: ${f.test}` : ""]
       .filter(Boolean)
@@ -501,12 +505,12 @@ function FindingItem({
                     <option key={x}>{x}</option>
                   ))}
                 </select>
-                <label className="text-slate-600">Area</label>
+                <label className="text-slate-600">Category</label>
                 <select value={area} onChange={(e) => setArea(e.target.value)} className="rounded-md border border-slate-300 px-2 py-1">
                   <option value="">Not set</option>
-                  {AREAS.map((a) => (
-                    <option key={a} value={a}>
-                      {AREA_LABELS[a]}
+                  {roleCats.map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {c.label}
                     </option>
                   ))}
                 </select>

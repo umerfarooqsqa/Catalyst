@@ -2,7 +2,7 @@ import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import { createClient as createSbClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import type { BugCategory, MemberOption } from "@/lib/types/models";
+import type { BugCategory, MemberOption, RoleCategory } from "@/lib/types/models";
 
 /**
  * Cross-request cache for bug categories. They change rarely and are
@@ -23,6 +23,23 @@ export const getCategories = unstable_cache(
   },
   ["bug-categories"],
   { revalidate: 300, tags: ["categories"] },
+);
+
+/**
+ * Role categories (migration 0043), cached across requests like bug categories:
+ * names and keywords only (anon-readable). Bust with revalidateTag("role-categories").
+ */
+export const getRoleCategories = unstable_cache(
+  async (): Promise<RoleCategory[]> => {
+    const sb = createSbClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    );
+    const { data } = await sb.from("role_categories").select("*").order("sort_order").order("label");
+    return (data as RoleCategory[] | null) ?? [];
+  },
+  ["role-categories"],
+  { revalidate: 300, tags: ["role-categories"] },
 );
 
 /**

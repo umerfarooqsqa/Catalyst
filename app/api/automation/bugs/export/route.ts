@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/admin";
 import { badPlatform, checkAutomationSecret, parsePlatform, resolveProject, resolveRelease } from "@/lib/automation-release";
 import type { Database } from "@/lib/types/database";
-import { AREAS, areaFromTestKey, isBugArea } from "@/lib/bug-area";
+import { areaFromTestKey } from "@/lib/bug-area";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,6 +48,7 @@ export async function GET(req: Request) {
   const found = await resolveProject(house, platform);
   if (!found.project) return NextResponse.json({ error: found.error }, { status: found.status });
   const { project } = found;
+  const { data: cats } = await serviceRoleClient().from("role_categories").select("key").order("sort_order");
   const { data: releases, error } = await serviceRoleClient()
     .from("releases")
     .select("version, started_at")
@@ -61,7 +62,7 @@ export async function GET(req: Request) {
     project: { id: project.id, name: project.name, current_version: project.current_version },
     versions,
     severities: SEVERITIES,
-    areas: AREAS,
+    areas: (cats ?? []).map((c) => c.key),
   });
 }
 
@@ -79,9 +80,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `severity must be one of: ${SEVERITIES.join(", ")}` }, { status: 400 });
   }
 
-  if (body?.area && !isBugArea(body.area)) {
-    return NextResponse.json({ error: `area must be one of: ${AREAS.join(", ")}` }, { status: 400 });
-  }
 
   const found = await resolveProject(house, platform);
   if (!found.project) return NextResponse.json({ error: found.error }, { status: found.status });
@@ -94,6 +92,12 @@ export async function POST(req: Request) {
   const { project, release } = resolved;
 
   const supabase = serviceRoleClient();
+  const { data: areaRows } = await supabase.from("role_categories").select("key");
+  const areaKeys = new Set((areaRows ?? []).map((r) => r.key));
+  if (body?.area && !areaKeys.has(String(body.area))) {
+    return NextResponse.json({ error: `area must be one of: ${[...areaKeys].join(", ")}` }, { status: 400 });
+  }
+  const testArea = areaFromTestKey(body?.key ? String(body.key) : null);
   const key = body?.key ? String(body.key).slice(0, 500) : null;
   if (key && !body?.force) {
     const { data: existing, error } = await supabase
@@ -126,7 +130,7 @@ export async function POST(req: Request) {
       description: String(body?.description ?? "").slice(0, 8000) || null,
       steps_to_reproduce: String(body?.steps ?? "").slice(0, 8000) || null,
       severity,
-      area: isBugArea(body?.area) ? body.area : areaFromTestKey(body?.key ? String(body.key) : null),
+      area: body?.area ? String(body.area) : testArea && areaKeys.has(testArea) ? testArea : null,
       source: "automation",
       // A forced re-export must not collide with the first bug's key.
       automation_key: key && body?.force ? `${key}#${Date.now()}` : key,

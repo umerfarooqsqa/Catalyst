@@ -5,9 +5,10 @@ import * as XLSX from "xlsx";
 import { createClient } from "@/lib/supabase/client";
 import { Button, Select, cx } from "@/components/ui";
 import { SEVERITIES } from "@/lib/types/models";
-import type { BugCategory, Severity } from "@/lib/types/models";
+import type { BugCategory, RoleCategory, Severity } from "@/lib/types/models";
 import { suggestCategory } from "@/lib/severity";
-import { AREA_SHORT, suggestArea } from "@/lib/bug-area";
+import { isArea, shortLabel, suggestArea } from "@/lib/bug-area";
+import { useRoleCategories } from "@/components/RoleCategories";
 import type { BugArea } from "@/lib/bug-area";
 
 type Field = "title" | "description" | "steps" | "severity" | "area" | "expected" | "tags";
@@ -17,18 +18,27 @@ const FIELDS: { key: Field; label: string; required?: boolean }[] = [
   { key: "expected", label: "Expected behavior (appended to description)" },
   { key: "steps", label: "Steps to reproduce" },
   { key: "severity", label: "Severity" },
-  { key: "area", label: "Area: frontend / backend / database / devops (suggested from the text when empty)" },
+  { key: "area", label: "Role category (suggested from the text when empty)" },
   { key: "tags", label: "Tags / Module" },
 ];
 
-/** A sheet's area cell, normalised; null = blank or unknown (then it's suggested). */
-function normArea(v: string): BugArea | null {
-  const s = v.toLowerCase();
-  if (/\b(db|dba|database|sql|data ?base)\b/.test(s)) return "database";
-  if (/\b(devops|dev ops|infra|infrastructure|ops|deploy\w*|server down)\b/.test(s)) return "devops";
-  if (/\b(front\w*|ui|client|app|mobile)\b/.test(s)) return "frontend";
-  if (/\b(back\w*|api|server|service)\b/.test(s)) return "backend";
-  return null;
+/**
+ * A sheet's role-category cell, normalised to a category key: its key, short name or
+ * label, else the usual words for the built-in four. null = blank or unknown (then
+ * the category is suggested from the text).
+ */
+function normArea(v: string, roleCats: RoleCategory[]): BugArea | null {
+  const s = v.trim().toLowerCase();
+  if (!s) return null;
+  const named = roleCats.find((c) => [c.key, c.short_label, c.label].some((n) => n.toLowerCase() === s));
+  if (named) return named.key;
+  const alias =
+    /\b(db|dba|database|sql|data ?base)\b/.test(s) ? "database"
+    : /\b(devops|dev ops|infra|infrastructure|ops|deploy\w*|server down)\b/.test(s) ? "devops"
+    : /\b(front\w*|ui|client|app|mobile)\b/.test(s) ? "frontend"
+    : /\b(back\w*|api|server|service)\b/.test(s) ? "backend"
+    : null;
+  return isArea(roleCats, alias) ? alias : null;
 }
 
 const SEV_ALIAS: Record<string, Severity> = {
@@ -69,6 +79,7 @@ export default function ImportBugsDialog({
   onClose: () => void;
   onDone: (count: number) => void;
 }) {
+  const roleCats = useRoleCategories();
   const [rawRows, setRawRows] = useState<Record<string, unknown>[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [map, setMap] = useState<Record<Field, string>>({
@@ -124,7 +135,7 @@ export default function ImportBugsDialog({
         expected: guess(hdrs, "expected"),
         steps: guess(hdrs, "steps", "repro"),
         severity: guess(hdrs, "severity", "priority"),
-        area: guess(hdrs, "area", "layer", "frontend", "backend", "team"),
+        area: guess(hdrs, "rolecategory", "area", "layer", "team"),
         tags: guess(hdrs, "module", "tag", "component"),
       });
     } catch {
@@ -148,8 +159,8 @@ export default function ImportBugsDialog({
         : [];
       const cat = suggestCategory(`${title} ${val("description")} ${tags.join(" ")}`, categories);
       const area =
-        normArea(val("area")) ??
-        suggestArea(`${title} ${val("description")} ${val("steps")} ${tags.join(" ")}`, categories, cat?.id)?.area ??
+        normArea(val("area"), roleCats) ??
+        suggestArea(`${title} ${val("description")} ${val("steps")} ${tags.join(" ")}`, roleCats, categories, cat?.id)?.area ??
         null;
       return {
         title,
@@ -161,7 +172,7 @@ export default function ImportBugsDialog({
         category_id: cat?.id ?? null,
       };
     });
-  }, [rawRows, map, categories]);
+  }, [rawRows, map, categories, roleCats]);
 
   // Pre-import duplicate scan of the mapped titles against the master sheet.
   const dupeMatches = useMemo(() => {
@@ -358,7 +369,7 @@ export default function ImportBugsDialog({
                             )}
                           </td>
                           <td>{p.severity}</td>
-                          <td>{p.area ? AREA_SHORT[p.area] : "—"}</td>
+                          <td>{p.area ? shortLabel(roleCats, p.area) : "—"}</td>
                           <td>{p.tags.join(", ")}</td>
                           <td className="text-slate-500">
                             {p.description?.slice(0, 120)}

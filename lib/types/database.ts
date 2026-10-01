@@ -723,10 +723,6 @@ export type Database = {
       projects: {
         Row: {
           assigned_developer_id: string | null
-          frontend_developer_id: string | null
-          backend_developer_id: string | null
-          database_developer_id: string | null
-          devops_developer_id: string | null
           notify_emails: string[]
           created_at: string
           created_by: string | null
@@ -742,10 +738,6 @@ export type Database = {
         }
         Insert: {
           assigned_developer_id?: string | null
-          frontend_developer_id?: string | null
-          backend_developer_id?: string | null
-          database_developer_id?: string | null
-          devops_developer_id?: string | null
           notify_emails?: string[]
           created_at?: string
           created_by?: string | null
@@ -761,10 +753,6 @@ export type Database = {
         }
         Update: {
           assigned_developer_id?: string | null
-          frontend_developer_id?: string | null
-          backend_developer_id?: string | null
-          database_developer_id?: string | null
-          devops_developer_id?: string | null
           notify_emails?: string[]
           created_at?: string
           created_by?: string | null
@@ -1122,6 +1110,84 @@ export type Database = {
           },
         ]
       }
+      role_categories: {
+        Row: {
+          id: string
+          key: string
+          label: string
+          short_label: string
+          description: string | null
+          keywords: string[]
+          color: string
+          all_platforms: boolean
+          sort_order: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          key: string
+          label: string
+          short_label: string
+          description?: string | null
+          keywords?: string[]
+          color?: string
+          all_platforms?: boolean
+          sort_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          key?: string
+          label?: string
+          short_label?: string
+          description?: string | null
+          keywords?: string[]
+          color?: string
+          all_platforms?: boolean
+          sort_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      project_area_developers: {
+        Row: {
+          project_id: string
+          area: string
+          developer_id: string
+          created_at: string
+        }
+        Insert: {
+          project_id: string
+          area: string
+          developer_id: string
+          created_at?: string
+        }
+        Update: {
+          project_id?: string
+          area?: string
+          developer_id?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_area_developers_developer_id_fkey"
+            columns: ["developer_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_area_developers_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       roles: {
         Row: {
           assignable: boolean
@@ -1209,6 +1275,7 @@ export type Database = {
       tasks: {
         Row: {
           assignee_id: string | null
+          area: string | null
           completed_at: string | null
           created_at: string
           created_by: string | null
@@ -1225,6 +1292,7 @@ export type Database = {
         }
         Insert: {
           assignee_id?: string | null
+          area?: string | null
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
@@ -1241,6 +1309,7 @@ export type Database = {
         }
         Update: {
           assignee_id?: string | null
+          area?: string | null
           completed_at?: string | null
           created_at?: string
           created_by?: string | null

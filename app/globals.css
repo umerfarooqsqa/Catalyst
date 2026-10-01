@@ -87,4 +87,7 @@ select.cell-input {
 .sheet-wrap {
   @apply w-full overflow-x-auto;
   -webkit-overflow-scrolling: touch;
+  /* Keep the grid's sticky header / frozen-column z-indexes (10-30) inside the grid, so
+     popovers from the top bar (notifications, z-10 there) open over it, not under it. */
+  isolation: isolate;
 }

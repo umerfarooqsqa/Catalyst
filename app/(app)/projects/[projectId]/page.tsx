@@ -2,7 +2,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Card, Stat, Badge } from "@/components/ui";
 import { SEVERITY_LABELS } from "@/lib/severity";
-import { AREAS, AREA_SHORT } from "@/lib/bug-area";
+import { CATEGORY_BARS } from "@/lib/bug-area";
+import { getRoleCategories } from "@/lib/data";
 import { titleCase, fmtRelative } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -43,10 +44,14 @@ export default async function ProjectOverview({
   const bySeverity = (["critical", "major", "minor", "trivial"] as const).map(
     (s) => ({ s, n: openBugs.filter((b) => b.severity === s).length }),
   );
-  // Open bugs by area (migrations 0041, 0042).
-  const AREA_BAR = { frontend: "bg-sky-500", backend: "bg-violet-500", database: "bg-amber-500", devops: "bg-emerald-500" };
+  // Open bugs by role category (migration 0043).
+  const roleCats = await getRoleCategories();
   const byArea = [
-    ...AREAS.map((a) => ({ label: AREA_SHORT[a], n: openBugs.filter((b) => b.area === a).length, bar: `h-full ${AREA_BAR[a]}` })),
+    ...roleCats.map((c) => ({
+      label: c.short_label,
+      n: openBugs.filter((b) => b.area === c.key).length,
+      bar: `h-full ${CATEGORY_BARS[c.color] ?? CATEGORY_BARS.slate}`,
+    })),
     { label: "Not set", n: openBugs.filter((b) => !b.area).length, bar: "h-full bg-slate-300" },
   ];
   const openTasks = (tasks ?? []).filter((t) => t.status !== "done").length;
@@ -97,7 +102,7 @@ export default async function ProjectOverview({
               </div>
             ))}
           </div>
-          <h2 className="mb-3 mt-5 text-sm font-semibold text-slate-700">Open bugs by area</h2>
+          <h2 className="mb-3 mt-5 text-sm font-semibold text-slate-700">Open bugs by role category</h2>
           <div className="space-y-2">
             {byArea.map(({ label, n, bar }) => (
               <div key={label} className="flex items-center gap-3">

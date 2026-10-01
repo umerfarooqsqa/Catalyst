@@ -2,34 +2,36 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader, Card, Button, Input, Select, Textarea } from "@/components/ui";
 import { SEVERITY_LABELS } from "@/lib/severity";
 import { SEVERITIES } from "@/lib/types/models";
-import { AREAS, AREA_LABELS } from "@/lib/bug-area";
+import { getRoleCategories } from "@/lib/data";
+import type { RoleCategory } from "@/lib/types/models";
 import { saveCategory } from "../actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminCategoriesPage() {
   const supabase = await createClient();
-  const { data: cats } = await supabase
-    .from("bug_categories")
-    .select("*")
-    .order("name");
+  const [{ data: cats }, roleCats] = await Promise.all([
+    supabase.from("bug_categories").select("*").order("name"),
+    getRoleCategories(),
+  ]);
 
   return (
     <div>
       <PageHeader
         title="Bug categories"
-        subtitle="Templates: default severity + pre-filled steps. Keyword hints drive the severity suggestion, and with 'Usually' the frontend/backend suggestion."
+        subtitle="Templates: default severity + pre-filled steps. Keyword hints drive the severity suggestion, and with 'Usually' the role-category suggestion."
       />
 
       <Card className="mb-6 p-4">
         <h2 className="mb-3 text-sm font-semibold text-slate-700">New category</h2>
-        <CategoryForm />
+        <CategoryForm roleCats={roleCats} />
       </Card>
 
       <div className="space-y-4">
         {(cats ?? []).map((c) => (
           <Card key={c.id} className="p-4">
             <CategoryForm
+              roleCats={roleCats}
               id={c.id}
               name={c.name}
               defaultSeverity={c.default_severity ?? "minor"}
@@ -45,6 +47,7 @@ export default async function AdminCategoriesPage() {
 }
 
 function CategoryForm({
+  roleCats,
   id,
   name = "",
   defaultSeverity = "minor",
@@ -52,6 +55,7 @@ function CategoryForm({
   templateSteps = "",
   keywordHints = "",
 }: {
+  roleCats: RoleCategory[];
   id?: string;
   name?: string;
   defaultSeverity?: string;
@@ -81,11 +85,11 @@ function CategoryForm({
             </option>
           ))}
         </Select>
-        <Select name="default_area" defaultValue={defaultArea} className="w-52" title="The area bugs of this category usually belong to">
-          <option value="">Usually: either</option>
-          {AREAS.map((a) => (
-            <option key={a} value={a}>
-              Usually: {AREA_LABELS[a]}
+        <Select name="default_area" defaultValue={defaultArea} className="w-52" title="The role category bugs of this kind usually belong to">
+          <option value="">Usually: any role category</option>
+          {roleCats.map((c) => (
+            <option key={c.key} value={c.key}>
+              Usually: {c.label}
             </option>
           ))}
         </Select>

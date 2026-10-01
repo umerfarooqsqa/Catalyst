@@ -4,7 +4,6 @@ import { canCreateBugs } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { serviceRoleClient } from "@/lib/supabase/admin";
 import type { Database, Json } from "@/lib/types/database";
-import { isBugArea } from "@/lib/bug-area";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -53,6 +52,8 @@ export async function POST(
   const finding = report.findings?.[index];
   if (!finding) return NextResponse.json({ error: "No such finding" }, { status: 404 });
 
+  const { data: areaRows } = await supabase.from("role_categories").select("key");
+  const areaKeys = new Set((areaRows ?? []).map((r) => r.key));
   const key = `autotest:${row.run_id}:${index}`;
   const { data: existing } = await supabase
     .from("bugs")
@@ -71,7 +72,7 @@ export async function POST(
         description: String(body?.description ?? "").slice(0, 8000) || null,
         steps_to_reproduce: String(body?.steps_to_reproduce ?? "").slice(0, 8000) || null,
         severity,
-        area: isBugArea(body?.area) ? body.area : null,
+        area: body?.area && areaKeys.has(String(body.area)) ? String(body.area) : null,
         release_id: row.release_id,
         source: "automation",
         automation_key: key,

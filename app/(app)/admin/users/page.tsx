@@ -3,7 +3,9 @@ import { requireProfile } from "@/lib/auth";
 import { PageHeader, Card, Button, Badge, Input, Select, FormRow } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { DEV_RANKS, DEV_RANK_LABELS } from "@/lib/types/models";
-import { AREAS, SKILL_LABELS, skillsOf } from "@/lib/bug-area";
+import { skillsOf } from "@/lib/bug-area";
+import { getRoleCategories } from "@/lib/data";
+import type { RoleCategory } from "@/lib/types/models";
 import { updateUser, createUser, deleteUser, setUserPassword } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -31,12 +33,13 @@ export default async function AdminUsersPage({
   const { userId } = await requireProfile();
   const { created, pw, pwset } = await searchParams;
   const supabase = await createClient();
-  const [{ data: users }, { data: roles }] = await Promise.all([
+  const [{ data: users }, { data: roles }, roleCats] = await Promise.all([
     supabase
       .from("profiles")
       .select("id, full_name, email, role, dev_rank, skills, created_at, roles(label, level)")
       .order("created_at"),
     supabase.from("roles").select("key, label, level").order("sort_order"),
+    getRoleCategories(),
   ]);
 
   const rows = (users ?? []) as unknown as ProfileRow[];
@@ -46,7 +49,7 @@ export default async function AdminUsersPage({
     <div>
       <PageHeader
         title="Users"
-        subtitle="Add teammates, set their role, developer rank, skills or password, or remove access. A lead developer can hand bugs and tasks assigned to them to a junior developer. Skills (any combination) decide who is offered for frontend, backend, database and DevOps bugs. Generated passwords are shown here once and never stored."
+        subtitle="Add teammates, set their role, developer rank, skills or password, or remove access. A lead developer can hand bugs and tasks assigned to them to a junior developer. Role categories (any combination, managed on Admin → Role categories) decide who is offered and auto-assigned bugs and tasks. Generated passwords are shown here once and never stored."
       />
 
       {created && pw ? (
@@ -132,7 +135,7 @@ export default async function AdminUsersPage({
               {u.id === userId ? null : <DeleteForm u={u} />}
             </div>
             <div className="mt-3 space-y-2">
-              <RoleForm u={u} roleOpts={roleOpts} />
+              <RoleForm u={u} roleOpts={roleOpts} cats={roleCats} />
               <PasswordForm u={u} self={u.id === userId} />
             </div>
           </li>
@@ -164,7 +167,7 @@ export default async function AdminUsersPage({
                 </td>
                 <td className="text-slate-500">{u.email}</td>
                 <td>
-                  <RoleForm u={u} roleOpts={roleOpts} />
+                  <RoleForm u={u} roleOpts={roleOpts} cats={roleCats} />
                 </td>
                 <td>
                   <PasswordForm u={u} self={u.id === userId} />
@@ -184,7 +187,7 @@ export default async function AdminUsersPage({
 
 type RoleOpt = { key: string; label: string; level: string };
 
-function RoleForm({ u, roleOpts }: { u: ProfileRow; roleOpts: RoleOpt[] }) {
+function RoleForm({ u, roleOpts, cats }: { u: ProfileRow; roleOpts: RoleOpt[]; cats: RoleCategory[] }) {
   return (
     <form
       action={updateUser}
@@ -217,12 +220,12 @@ function RoleForm({ u, roleOpts }: { u: ProfileRow; roleOpts: RoleOpt[] }) {
           </option>
         ))}
       </Select>
-      {/* Skills: any combination; who is offered for an area's bugs (migration 0042). */}
-      <span className="flex flex-wrap items-center gap-x-2 gap-y-1" role="group" aria-label="Skills">
-        {AREAS.map((a) => (
-          <label key={a} className="inline-flex items-center gap-1 text-xs text-slate-600">
-            <input type="checkbox" name="skills" value={a} defaultChecked={skillsOf(u.skills).includes(a)} />
-            {SKILL_LABELS[a]}
+      {/* Role categories the person is in (any combination): who is offered and auto-assigned (migration 0043). */}
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1" role="group" aria-label="Role categories">
+        {cats.map((c) => (
+          <label key={c.key} className="inline-flex items-center gap-1 text-xs text-slate-600" title={c.label}>
+            <input type="checkbox" name="skills" value={c.key} defaultChecked={skillsOf(u.skills).includes(c.key)} />
+            {c.short_label}
           </label>
         ))}
       </span>

@@ -20,7 +20,8 @@ import AttachmentGallery from "@/components/AttachmentGallery";
 import { usePhoneHelper } from "@/lib/phone-helper-available";
 import AreaChip from "@/components/AreaChip";
 import AssigneeOptions from "@/components/AssigneeOptions";
-import { AREAS, AREA_LABELS, areaPatch, isBugArea, suggestArea } from "@/lib/bug-area";
+import { areaPatch, categoryOf, isArea, suggestArea } from "@/lib/bug-area";
+import { useRoleCategories } from "@/components/RoleCategories";
 import type { AreaDevelopers, BugArea } from "@/lib/bug-area";
 import type { BugCategory } from "@/lib/types/models";
 
@@ -240,9 +241,10 @@ export default function BugDrawer({
   // Frontend / backend (migration 0041). An open bug that was auto-routed can follow to the new
   // area's developer (areaPatch); one assigned by hand keeps its assignee.
   const [moveToAreaDev, setMoveToAreaDev] = useState(true);
-  const areaSuggestion = isBugArea(bug.area)
+  const roleCats = useRoleCategories();
+  const areaSuggestion = isArea(roleCats, bug.area)
     ? null
-    : suggestArea(`${bug.title} ${bug.description ?? ""} ${bug.steps_to_reproduce ?? ""}`, categories, bug.category_id);
+    : suggestArea(`${bug.title} ${bug.description ?? ""} ${bug.steps_to_reproduce ?? ""}`, roleCats, categories, bug.category_id);
   async function setArea(area: BugArea | null) {
     setErr(null);
     const patch = projectDevelopers ? areaPatch(bug, area, projectDevelopers, moveToAreaDev) : { area };
@@ -435,16 +437,16 @@ export default function BugDrawer({
                   className="rounded-md border border-slate-300 px-2 py-1 text-[13px]"
                 >
                   <option value="">Not set</option>
-                  {AREAS.map((a) => (
-                    <option key={a} value={a}>
-                      {AREA_LABELS[a]}
+                  {roleCats.map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {c.label}
                     </option>
                   ))}
                 </select>
                 {areaSuggestion && (
                   <span className="inline-flex items-center gap-1.5">
                     <span className="text-slate-500">
-                      suggested {AREA_LABELS[areaSuggestion.area]}
+                      suggested {categoryOf(roleCats, areaSuggestion.area)?.label}
                       {areaSuggestion.matched.length ? ` (${areaSuggestion.matched.join(", ")})` : ""}
                     </span>
                     <button
@@ -459,7 +461,7 @@ export default function BugDrawer({
               </div>
               {projectDevelopers &&
                 bug.status !== "closed" &&
-                AREAS.some((a) => a !== bug.area && areaPatch(bug, a, projectDevelopers).assignee_id) && (
+                roleCats.some((c) => c.key !== bug.area && areaPatch(bug, c.key, projectDevelopers).assignee_id) && (
                   <label className="flex items-center gap-1.5 text-slate-500">
                     <input type="checkbox" checked={moveToAreaDev} onChange={(e) => setMoveToAreaDev(e.target.checked)} />
                     When the area changes, move this bug to that area&apos;s developer

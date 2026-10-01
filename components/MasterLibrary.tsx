@@ -10,7 +10,8 @@ import { exportRows } from "@/lib/export";
 import { canCreateBugs, canManageMasterLibrary } from "@/lib/permissions";
 import ImportBugsDialog from "@/components/ImportBugsDialog";
 import AreaChip from "@/components/AreaChip";
-import { AREAS, AREA_SHORT, AREA_LABELS, isBugArea, suggestArea } from "@/lib/bug-area";
+import { shortLabel, suggestArea } from "@/lib/bug-area";
+import { useRoleCategories } from "@/components/RoleCategories";
 import type { BugArea } from "@/lib/bug-area";
 import { SEVERITIES } from "@/lib/types/models";
 import type {
@@ -77,6 +78,7 @@ export default function MasterLibrary({
   const [nsev, setNsev] = useState<Severity>("minor");
   const [ncat, setNcat] = useState("");
   const [narea, setNarea] = useState<BugArea | "">(""); // "" = use the suggestion
+  const roleCats = useRoleCategories();
   const [ntags, setNtags] = useState("");
   const [dupes, setDupes] = useState<BasePageEntry[]>([]);
 
@@ -334,7 +336,7 @@ export default function MasterLibrary({
     if (error) return setErr(error.message);
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, area } : r)));
   }
-  const newAreaSuggestion = suggestArea(`${nt} ${nd} ${ns}`, categories, ncat || null);
+  const newAreaSuggestion = suggestArea(`${nt} ${nd} ${ns}`, roleCats, categories, ncat || null);
 
   async function del(id: string) {
     if (!confirm("Delete this master library entry?")) return;
@@ -354,7 +356,7 @@ export default function MasterLibrary({
         description: m.description,
         steps_to_reproduce: m.steps_to_reproduce,
         severity: m.severity,
-        area: isBugArea(m.area) ? AREA_SHORT[m.area] : "",
+        area: shortLabel(roleCats, m.area),
         category: catName(m.category_id),
         tags: m.tags,
         times_reused: m.times_reused,
@@ -365,7 +367,7 @@ export default function MasterLibrary({
         { key: "description", header: "Description" },
         { key: "steps_to_reproduce", header: "Steps to Reproduce" },
         { key: "severity", header: "Severity" },
-        { key: "area", header: "Area" },
+        { key: "area", header: "Role Category" },
         { key: "category", header: "Category" },
         { key: "tags", header: "Tags" },
         { key: "times_reused", header: "Times Reused" },
@@ -498,11 +500,11 @@ export default function MasterLibrary({
                 aria-label="Area"
               >
                 <option value="">
-                  {newAreaSuggestion ? `Area: ${AREA_SHORT[newAreaSuggestion.area]} (suggested)` : "Area: not set"}
+                  {newAreaSuggestion ? `Category: ${shortLabel(roleCats, newAreaSuggestion.area)} (suggested)` : "Category: not set"}
                 </option>
-                {AREAS.map((a) => (
-                  <option key={a} value={a}>
-                    {AREA_LABELS[a]}
+                {roleCats.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.label}
                   </option>
                 ))}
               </select>
@@ -606,13 +608,13 @@ export default function MasterLibrary({
           onChange={(e) => setFArea(e.target.value)}
           className="rounded-md border border-slate-300 px-2 py-1.5"
         >
-          <option value="">All areas</option>
-          {AREAS.map((a) => (
-            <option key={a} value={a}>
-              {AREA_SHORT[a]}
+          <option value="">All role categories</option>
+          {roleCats.map((c) => (
+            <option key={c.key} value={c.key}>
+              {c.short_label}
             </option>
           ))}
-          <option value="none">Area not set</option>
+          <option value="none">Category not set</option>
         </select>
       </div>
 
@@ -657,10 +659,10 @@ export default function MasterLibrary({
                         className="rounded-full border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] text-slate-700"
                         aria-label="Area"
                       >
-                        <option value="">Area not set</option>
-                        {AREAS.map((a) => (
-                          <option key={a} value={a}>
-                            {AREA_SHORT[a]}
+                        <option value="">Category not set</option>
+                        {roleCats.map((c) => (
+                          <option key={c.key} value={c.key}>
+                            {c.short_label}
                           </option>
                         ))}
                       </select>

@@ -20,11 +20,15 @@ import { exportRows } from "@/lib/export";
 import { canManageTasks, canEditTask, canApproveTasks, isViewer } from "@/lib/permissions";
 import { useGridNav } from "@/lib/useGridNav";
 import { useIsMobile } from "@/lib/useIsMobile";
-import type { Task, Profile, Bug, RoleLevel } from "@/lib/types/models";
+import type { Task, Bug, MemberOption, RoleLevel } from "@/lib/types/models";
+import AreaChip from "@/components/AreaChip";
+import AssigneeOptions from "@/components/AssigneeOptions";
+import { useRoleCategories } from "@/components/RoleCategories";
+import { categoryOf, isArea, shortLabel, suggestArea } from "@/lib/bug-area";
 import { TASK_STATUSES, PRIORITIES } from "@/lib/types/models";
 
 type TaskRow = Task;
-const NAV_COLS = 6; // title, status, priority, assignee, linked-bug, due
+const NAV_COLS = 7; // title, status, priority, category, assignee, linked-bug, due
 
 export default function TaskBoard({
   projectId,
@@ -38,7 +42,7 @@ export default function TaskBoard({
   projectId: string;
   projectName: string;
   initialTasks: TaskRow[];
-  members: Pick<Profile, "id" | "full_name">[];
+  members: MemberOption[];
   bugs: Pick<Bug, "id" | "title">[];
   role: RoleLevel;
   userId: string;
@@ -89,6 +93,16 @@ export default function TaskBoard({
   const [nAssignee, setNAssignee] = useState("");
   const [nBug, setNBug] = useState("");
   const [nDue, setNDue] = useState<string | null>(null);
+  // Role category (migration 0043): suggested from the title until picked. With a category
+  // and no assignee, the database gives the task to the least busy person in it.
+  const roleCats = useRoleCategories();
+  const [nArea, setNArea] = useState("");
+  const [nAreaTouched, setNAreaTouched] = useState(false);
+  const nAreaSuggestion = useMemo(() => suggestArea(`${nTitle} ${nDesc}`, roleCats), [nTitle, nDesc, roleCats]);
+  useEffect(() => {
+    if (!nAreaTouched) setNArea(nAreaSuggestion?.area ?? "");
+  }, [nAreaSuggestion, nAreaTouched]);
+  const [fArea, setFArea] = useState(""); // "" = all, "none" = not set
 
   useEffect(() => setTasks(initialTasks), [initialTasks]);
   // Default to touch cards on phones; respect a manual switch afterwards.
@@ -130,6 +144,7 @@ export default function TaskBoard({
       description: nDesc.trim() || null,
       priority: nPriority as never,
       assignee_id: nAssignee || null,
+      area: nArea || null,
       linked_bug_id: nBug || null,
       due_date: nDue,
     });
@@ -138,6 +153,8 @@ export default function TaskBoard({
     setNDesc("");
     setNPriority("medium");
     setNAssignee("");
+    setNArea("");
+    setNAreaTouched(false);
     setNBug("");
     setNDue(null);
     setShowNew(false);
@@ -149,6 +166,7 @@ export default function TaskBoard({
     if (q.trim())
       rows = rows.filter((t) => t.title.toLowerCase().includes(q.toLowerCase()));
     if (fStatus) rows = rows.filter((t) => t.status === fStatus);
+    if (fArea) rows = rows.filter((t) => (fArea === "none" ? !isArea(roleCats, t.area) : t.area === fArea));
     if (mineOnly) rows = rows.filter((t) => t.assignee_id === userId);
     const order = { high: 0, medium: 1, low: 2 } as Record<string, number>;
     rows.sort((a, b) => {
@@ -158,7 +176,7 @@ export default function TaskBoard({
       return d !== 0 ? d : order[a.priority] - order[b.priority];
     });
     return rows;
-  }, [tasks, q, fStatus, mineOnly, userId]);
+  }, [tasks, q, fStatus, fArea, roleCats, mineOnly, userId]);
 
   const grid = useGridNav(filtered.length, NAV_COLS);
   const drawerTask = tasks.find((t) => t.id === drawerId) ?? null;
@@ -170,6 +188,7 @@ export default function TaskBoard({
         description: t.description,
         status: t.status,
         priority: t.priority,
+        category: shortLabel(roleCats, t.area),
         assignee: members.find((m) => m.id === t.assignee_id)?.full_name ?? "",
         linked_bug: bugs.find((x) => x.id === t.linked_bug_id)?.title ?? "",
         due_date: t.due_date ? fmtDateTime(t.due_date) : "",
@@ -179,6 +198,7 @@ export default function TaskBoard({
         { key: "description", header: "Description" },
         { key: "status", header: "Status" },
         { key: "priority", header: "Priority" },
+        { key: "category", header: "Role Category" },
         { key: "assignee", header: "Assignee" },
         { key: "linked_bug", header: "Linked Bug" },
         { key: "due_date", header: "Due Date" },
@@ -246,16 +266,36 @@ export default function TaskBoard({
               ))}
             </select>
             <select
-              value={nAssignee}
-              onChange={(e) => setNAssignee(e.target.value)}
-              className="rounded-md border border-slate-300 px-3 py-2 text-[13px]"
+              value={nArea}
+              onChange={(e) => {
+                setNArea(e.target.value);
+                setNAreaTouched(true);
+              }}
+              aria-label="Role category"
+              className={cx(
+                "rounded-md border px-3 py-2 text-[13px]",
+                nAreaSuggestion && !nAreaTouched ? "border-brand/50 bg-brand/5" : "border-slate-300",
+              )}
+              title={nAreaSuggestion?.matched.length ? `matched: ${nAreaSuggestion.matched.join(", ")}` : undefined}
             >
-              <option value="">Unassigned</option>
-              {members.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.full_name}
+              <option value="">No role category</option>
+              {roleCats.map((c) => (
+                <option key={c.key} value={c.key}>
+                  {c.label}
+                  {nAreaSuggestion?.area === c.key && !nAreaTouched ? " (suggested)" : ""}
                 </option>
               ))}
+            </select>
+            <select
+              value={nAssignee}
+              onChange={(e) => setNAssignee(e.target.value)}
+              aria-label="Assignee"
+              className="rounded-md border border-slate-300 px-3 py-2 text-[13px]"
+            >
+              <option value="">
+                {nArea ? `Auto: least busy in ${categoryOf(roleCats, nArea)?.short_label ?? nArea}` : "Unassigned"}
+              </option>
+              <AssigneeOptions people={members} area={nArea} />
             </select>
             <select
               value={nBug}
@@ -310,6 +350,19 @@ export default function TaskBoard({
             </option>
           ))}
         </select>
+        <select
+          value={fArea}
+          onChange={(e) => setFArea(e.target.value)}
+          className="rounded-md border border-slate-300 px-1.5 py-1.5"
+        >
+          <option value="">Category: all</option>
+          {roleCats.map((c) => (
+            <option key={c.key} value={c.key}>
+              {c.short_label}
+            </option>
+          ))}
+          <option value="none">Not set</option>
+        </select>
         <label className="flex items-center gap-1">
           <input
             type="checkbox"
@@ -359,6 +412,7 @@ export default function TaskBoard({
                     {titleCase(t.priority)}
                   </Badge>
                 </div>
+                {t.area && <AreaChip area={t.area} className="mt-1" />}
                 {t.description && (
                   <p className="mt-1 line-clamp-2 text-[13px] text-slate-500">
                     {t.description}
@@ -413,11 +467,7 @@ export default function TaskBoard({
                       className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-[12px]"
                     >
                       <option value="">Unassigned</option>
-                      {members.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.full_name}
-                        </option>
-                      ))}
+                      <AssigneeOptions people={members} area={t.area} />
                     </select>
                   ) : (
                     <span>👤 {who ?? "Unassigned"}</span>
@@ -436,6 +486,7 @@ export default function TaskBoard({
                 <th className="freeze min-w-[16rem]">Title</th>
                 <th className="min-w-[8rem]">Status</th>
                 <th className="min-w-[6rem]">Priority</th>
+                <th className="min-w-[8rem]">Category</th>
                 <th className="min-w-[9rem]">Assignee</th>
                 <th className="min-w-[12rem]">Linked bug</th>
                 <th className="min-w-[7rem]">Due</th>
@@ -510,6 +561,23 @@ export default function TaskBoard({
                     <td {...grid.cellProps(r, 3)}>
                       <select
                         tabIndex={-1}
+                        value={t.area ?? ""}
+                        disabled={!canEdit}
+                        onChange={(e) => patch(t.id, { area: e.target.value || null })}
+                        className={cx("cell-input", !t.area && "text-slate-400")}
+                      >
+                        <option value="">—</option>
+                        {roleCats.map((c) => (
+                          <option key={c.key} value={c.key}>
+                            {c.short_label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+
+                    <td {...grid.cellProps(r, 4)}>
+                      <select
+                        tabIndex={-1}
                         value={t.assignee_id ?? ""}
                         disabled={!canEdit}
                         onChange={(e) =>
@@ -518,15 +586,11 @@ export default function TaskBoard({
                         className="cell-input"
                       >
                         <option value="">—</option>
-                        {members.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.full_name}
-                          </option>
-                        ))}
+                        <AssigneeOptions people={members} area={t.area} />
                       </select>
                     </td>
 
-                    <td {...grid.cellProps(r, 4)}>
+                    <td {...grid.cellProps(r, 5)}>
                       <select
                         tabIndex={-1}
                         value={t.linked_bug_id ?? ""}
@@ -545,7 +609,7 @@ export default function TaskBoard({
                       </select>
                     </td>
 
-                    <td {...grid.cellProps(r, 5)}>
+                    <td {...grid.cellProps(r, 6)}>
                       <DueInput
                         compact
                         value={t.due_date}

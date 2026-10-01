@@ -20,7 +20,8 @@ import VersionsPanel from "@/components/VersionsPanel";
 import AreaChip from "@/components/AreaChip";
 import AssigneeOptions from "@/components/AssigneeOptions";
 import ClassifyAreaDialog from "@/components/ClassifyAreaDialog";
-import { AREAS, AREA_LABELS, AREA_SHORT, NO_DEVELOPERS, SKILL_LABELS, areaPatch, isBugArea, peopleForArea, skillsOf } from "@/lib/bug-area";
+import { NO_DEVELOPERS, areaPatch, isArea, peopleForArea, shortLabel, skillsOf } from "@/lib/bug-area";
+import { useRoleCategories } from "@/components/RoleCategories";
 import type { AreaDevelopers, BugArea } from "@/lib/bug-area";
 import { SEVERITY_LABELS } from "@/lib/severity";
 import { fmtDateTime, titleCase } from "@/lib/format";
@@ -73,7 +74,6 @@ const SEV_RANK: Record<Severity, number> = {
   trivial: 3,
 };
 const NAV_COLS = 8; // title, severity, area, priority, status, assignee, category, due
-const AREA_RANK = (a: string | null) => (isBugArea(a) ? AREAS.indexOf(a) : AREAS.length);
 
 export default function BugBoard({
   projectId,
@@ -93,6 +93,13 @@ export default function BugBoard({
   const router = useRouter();
   const params = useSearchParams();
   const isMobile = useIsMobile();
+  // Role categories (migration 0043), in their admin-set order.
+  const roleCats = useRoleCategories();
+  const areaRank = (a: string | null) => {
+    const i = roleCats.findIndex((c) => c.key === a);
+    return i === -1 ? roleCats.length : i;
+  };
+  const areaShort = (a: string | null) => shortLabel(roleCats, a);
   const [bugs, setBugs] = useState(initialBugs);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showNew, setShowNew] = useState(false);
@@ -147,16 +154,25 @@ export default function BugBoard({
   };
   const refresh = useCallback(() => router.refresh(), [router]);
 
-  // full list resolves names; only assignable users who can see this project
-  // (their role's platform is none or this project's) appear in pickers
+  // full list resolves names; only assignable users who can see this project appear in pickers:
+  // their role's platform is none or this project's, or they are in a role category that spans
+  // Android and iOS (backend, DBA; migration 0043), which lets them see every platform.
+  const crossPlatform = useMemo(
+    () => new Set(roleCats.filter((c) => c.all_platforms).map((c) => c.key)),
+    [roleCats],
+  );
+  const onPlatform = useCallback(
+    (m: MemberOption) => !m.roles?.platform || m.roles.platform === projectPlatform,
+    [projectPlatform],
+  );
   const assignable = useMemo(
     () =>
       members.filter(
         (m) =>
           m.roles?.assignable !== false &&
-          (!m.roles?.platform || m.roles.platform === projectPlatform),
+          (onPlatform(m) || skillsOf(m.skills).some((k) => crossPlatform.has(k))),
       ),
-    [members, projectPlatform],
+    [members, onPlatform, crossPlatform],
   );
   const developers = useMemo(
     () => assignable.filter((m) => m.roles?.level === "contributor"),
@@ -169,7 +185,7 @@ export default function BugBoard({
   // from here on (assign_project_developer, migrations 0035 + 0041). area null = bugs with no area.
   async function assignProjectDeveloper(area: BugArea | null, developerId: string | null) {
     const name = developerId ? memberNameOf(developerId) : null;
-    const which = area ? `${AREA_SHORT[area].toLowerCase()} bugs` : "bugs with no area";
+    const which = area ? `${areaShort(area)} bugs` : "bugs with no category";
     if (
       developerId &&
       !confirm(`Make ${name} the developer for ${which}? Every open, unassigned one goes to them now, and every new one will too.`)
@@ -192,7 +208,7 @@ export default function BugBoard({
       developerId
         ? `${name} now gets ${which}: ${data ?? 0} open bug(s) assigned to them.`
         : area
-          ? `No ${AREA_SHORT[area].toLowerCase()} developer; those bugs go to the developer for bugs with no area.`
+          ? `No project person for ${areaShort(area)}; those bugs go to the least busy person in it, else the developer for bugs with no category.`
           : "No developer for bugs with no area; they stay unassigned.",
     );
     refresh();
@@ -296,7 +312,7 @@ export default function BugBoard({
       );
     }
     if (fSeverity) rows = rows.filter((b) => b.severity === fSeverity);
-    if (fArea) rows = rows.filter((b) => (fArea === "none" ? !isBugArea(b.area) : b.area === fArea));
+    if (fArea) rows = rows.filter((b) => (fArea === "none" ? !isArea(roleCats, b.area) : b.area === fArea));
     if (fStatus) rows = rows.filter((b) => b.status === fStatus);
     if (fVersion) rows = rows.filter((b) => (fVersion === "none" ? !b.release_id : b.release_id === fVersion));
     if (fAssignee)
@@ -314,8 +330,8 @@ export default function BugBoard({
           bv = SEV_RANK[b.severity];
           break;
         case "area":
-          av = AREA_RANK(a.area);
-          bv = AREA_RANK(b.area);
+          av = areaRank(a.area);
+          bv = areaRank(b.area);
           break;
         case "priority":
           av = PRIORITIES.indexOf(a.priority);
@@ -337,7 +353,10 @@ export default function BugBoard({
     });
     return rows;
   }, [bugs, q, fSeverity, fArea, fStatus, fVersion, fAssignee, mineOnly, hideClosed, sort, userId]);
-  const unclassified = useMemo(() => bugs.filter((b) => !isBugArea(b.area) && b.status !== "closed"), [bugs]);
+  const unclassified = useMemo(
+    () => bugs.filter((b) => !isArea(roleCats, b.area) && b.status !== "closed"),
+    [bugs, roleCats],
+  );
 
   const grid = useGridNav(filtered.length, NAV_COLS);
 
@@ -427,7 +446,7 @@ export default function BugBoard({
           ? `Yes${b.confirmer?.full_name ? ` (${b.confirmer.full_name})` : ""}, ${fmtDateTime(b.version_confirmed_at)}`
           : b.release_id ? "Not yet" : "",
         severity: b.severity,
-        area: isBugArea(b.area) ? AREA_SHORT[b.area] : "",
+        area: areaShort(b.area),
         priority: b.priority,
         status: b.status,
         category: b.category?.name ?? "",
@@ -442,7 +461,7 @@ export default function BugBoard({
         { key: "app_version", header: "App Version" },
         { key: "version_confirmed", header: "Version Confirmed" },
         { key: "severity", header: "Severity" },
-        { key: "area", header: "Area" },
+        { key: "area", header: "Role Category" },
         { key: "priority", header: "Priority" },
         { key: "status", header: "Status" },
         { key: "category", header: "Category" },
@@ -492,7 +511,7 @@ export default function BugBoard({
         actions={
           <>
             {isManager(role) && unclassified.length > 0 && (
-              <Button variant="secondary" onClick={() => setClassifying(true)} title="Set the area (frontend, backend, database, DevOps) on bugs that have none">
+              <Button variant="secondary" onClick={() => setClassifying(true)} title="Set the role category on bugs that have none">
                 Classify {unclassified.length} bug{unclassified.length === 1 ? "" : "s"}
               </Button>
             )}
@@ -513,13 +532,15 @@ export default function BugBoard({
 
       <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md border border-grid-line bg-grid-head/40 px-2 py-1.5 text-[13px]">
         <span className="font-medium text-slate-600">Developers:</span>
-        {([...AREAS.map((a) => [a, AREA_SHORT[a], projectDevelopers[a]]), [null, "No area", projectDevelopers.none]] as [
+        {([...roleCats.map((c) => [c.key, c.short_label, projectDevelopers.areas[c.key] ?? null]), [null, "No category", projectDevelopers.none]] as [
           BugArea | null,
           string,
           string | null,
         ][]).map(([area, label, devId]) => {
-          // People with this area's skill (Admin -> Users); everyone while nobody has it yet.
-          const { list, matched } = peopleForArea(developers, area);
+          // People in this category (Admin -> Role categories); everyone while nobody is in it yet.
+          // Only a category that spans Android and iOS may take someone whose role is on the other platform.
+          const candidates = area && crossPlatform.has(area) ? developers : developers.filter(onPlatform);
+          const { list, matched } = peopleForArea(candidates, area);
           return (
             <label key={label} className="inline-flex items-center gap-1.5">
               <span className="text-slate-500">{label}</span>
@@ -531,7 +552,7 @@ export default function BugBoard({
                   className="rounded-md border border-slate-300 bg-white px-2 py-0.5"
                   title={
                     area && !matched
-                      ? `Nobody has the ${SKILL_LABELS[area]} skill yet (Admin → Users), so every developer is listed`
+                      ? `Nobody is in ${areaShort(area)} yet (Admin → Role categories), so every developer is listed`
                       : undefined
                   }
                 >
@@ -552,7 +573,7 @@ export default function BugBoard({
             </label>
           );
         })}
-        <span className="text-xs text-slate-400">new bugs go to their area&apos;s developer automatically</span>
+        <span className="text-xs text-slate-400">new bugs go to their category&apos;s person, else the least busy person in it</span>
         {devMsg && <span className="text-xs text-green-700">{devMsg}</span>}
       </div>
 
@@ -590,12 +611,12 @@ export default function BugBoard({
           value={fArea}
           onChange={(e) => setFArea(e.target.value)}
           className="rounded-md border border-slate-300 px-1.5 py-1"
-          title="Frontend (the app), backend (server/API), database or DevOps"
+          title="Role category (Admin → Role categories)"
         >
-          <option value="">Area: all</option>
-          {AREAS.map((a) => (
-            <option key={a} value={a}>
-              {AREA_SHORT[a]}
+          <option value="">Category: all</option>
+          {roleCats.map((c) => (
+            <option key={c.key} value={c.key}>
+              {c.short_label}
             </option>
           ))}
           <option value="none">Not set</option>
@@ -706,17 +727,17 @@ export default function BugBoard({
             className="rounded-md border border-slate-300 px-1.5 py-0.5"
             defaultValue=""
           >
-            <option value="">Set area…</option>
-            {AREAS.map((a) => (
-              <option key={a} value={a}>
-                {AREA_LABELS[a]}
+            <option value="">Set category…</option>
+            {roleCats.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.label}
               </option>
             ))}
             <option value="none">Not set</option>
           </select>
           <label className="inline-flex items-center gap-1 text-xs text-slate-600" title="Open bugs that are unassigned or still with the project developer move to the area's developer">
             <input type="checkbox" checked={moveAutoAssigned} onChange={(e) => setMoveAutoAssigned(e.target.checked)} />
-            move to area developer
+            move to category person
           </label>
           <Button variant="danger" onClick={bulkDelete}>
             Delete
@@ -890,7 +911,7 @@ export default function BugBoard({
                   <SortHead k="severity">Severity</SortHead>
                 </th>
                 <th className="min-w-[7rem]">
-                  <SortHead k="area">Area</SortHead>
+                  <SortHead k="area">Category</SortHead>
                 </th>
                 <th className="min-w-[6rem]">
                   <SortHead k="priority">Priority</SortHead>
@@ -995,7 +1016,7 @@ export default function BugBoard({
 
                     <td {...grid.cellProps(r, 2)}>
                       {!canEdit ? (
-                        <span className="cell-input">{isBugArea(b.area) ? AREA_SHORT[b.area] : "—"}</span>
+                        <span className="cell-input">{areaShort(b.area) || "—"}</span>
                       ) : (
                         <select
                           tabIndex={-1}
@@ -1004,9 +1025,9 @@ export default function BugBoard({
                           className={cx("cell-input", !b.area && "text-slate-400")}
                         >
                           <option value="">Not set</option>
-                          {AREAS.map((a) => (
-                            <option key={a} value={a}>
-                              {AREA_SHORT[a]}
+                          {roleCats.map((c) => (
+                            <option key={c.key} value={c.key}>
+                              {c.short_label}
                             </option>
                           ))}
                         </select>

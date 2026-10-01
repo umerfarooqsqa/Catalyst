@@ -35,10 +35,16 @@ export default async function BugsPage({
         .order("title"),
       supabase
         .from("projects")
-        .select("house_group, platform, current_version, assigned_developer_id, frontend_developer_id, backend_developer_id, database_developer_id, devops_developer_id")
+        .select("house_group, platform, current_version, assigned_developer_id")
         .eq("id", projectId)
         .maybeSingle(),
     ]);
+
+  // The project's person per role category (migration 0043).
+  const { data: areaDevRows } = await supabase
+    .from("project_area_developers")
+    .select("area, developer_id")
+    .eq("project_id", projectId);
 
   // The app versions bugs can be filed under: the project's releases (newest first).
   const { data: releaseRows } = await supabase
@@ -80,10 +86,7 @@ export default async function BugsPage({
       projectPlatform={projectRow?.platform ?? null}
       projectDevelopers={{
         none: projectRow?.assigned_developer_id ?? null,
-        frontend: projectRow?.frontend_developer_id ?? null,
-        backend: projectRow?.backend_developer_id ?? null,
-        database: projectRow?.database_developer_id ?? null,
-        devops: projectRow?.devops_developer_id ?? null,
+        areas: Object.fromEntries((areaDevRows ?? []).map((r) => [r.area, r.developer_id])),
       }}
     />
   );

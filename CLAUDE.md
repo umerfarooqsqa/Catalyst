@@ -181,6 +181,24 @@ rewrite.
   - **A developer per area:** `projects.database_developer_id` / `devops_developer_id`, same platform check, routing and `assign_project_developer` support. They start empty, so those bugs go to the no-area developer until QA picks someone. The Bugs page bar has five pickers.
   - **Skills:** `profiles.skills text[]`, any combination of the four (decided with the user: one person can have several). Admin → Users has a tick box per skill; only an admin can change them (`trg_profiles_protect_admin_fields`).
   - **What skills do:** an area's developer picker lists the developers with that skill (`peopleForArea`; everyone while nobody has it yet). A bug's assignee lists show people with the bug's area skill first (`components/AssigneeOptions.tsx`).
+- **Role categories (2026-10-01, migration 0043; tested in a rolled-back transaction, 34 checks; applied and deployed `fa009755-21b5-4906-8f3b-61d8aeca513b`. Don't roll back to an earlier build: they read the project columns 0043 dropped):** the fixed four areas became an admin-managed list, and tasks use it too (decided with the user).
+  - **Admin → Role categories** (`app/(app)/admin/role-categories/page.tsx`, actions in `app/(app)/admin/actions.ts`):
+    - add, rename, recolour, reorder or delete a category; each has keywords for the suggestion;
+    - add or remove people (their `profiles.skills`), and see each person's open work and who is "next up".
+    - **Keys never change.** Deleting a category clears it from bugs, tasks, library entries, bug-category defaults and people, and drops its project people.
+  - **`role_categories`** (key, label, short_label, description, keywords, color, sort_order) replaces the hard-coded lists and check constraints. `bugs.area`, `tasks.area`, `base_page.area` and `bug_categories.default_area` reference its key. `profiles.skills` is checked by `trg_profiles_validate_skills`. Readable by anyone (anon too, like bug categories); admin-only writes; audited.
+  - **`project_area_developers`** (project, area, developer) replaces `projects.frontend/backend/database/devops_developer_id`, which were copied over and dropped. `assign_project_developer(project, developer, area)` writes it.
+  - **Auto-assignment:**
+    - **Tasks:** a task with a category and no assignee goes to the least busy person in it who can see the project (`least_busy_in_category`: fewest open tasks + open bugs, ties by name, assignable roles only). The assignee is notified (`trg_tasks_notify_insert`; `tasks_notify` only fires on update).
+    - **Bugs:** a bug with a category goes to the project's person for it, else the least busy person in it, else `assigned_developer_id`.
+  - **Categories that span Android and iOS (`role_categories.all_platforms`; decided with the user: backend and DBA work isn't platform-specific).** Seeded on for backend and database; a tick box on the admin page.
+    - **Assignment:** people in such a category can be a project's person for it and be auto-assigned its work on any platform's project. `least_busy_in_category` and `project_area_developers_check` skip the platform rule for it.
+    - **Visibility:** `user_platform()` (0034, replaced) is NULL for them, so they see every platform's projects and everything in them.
+    - **Unchanged:** a platform-specific category (frontend) still follows the role's own platform (`profile_platform()`, unchanged). The Bugs page pickers offer cross-platform people only for cross-platform categories.
+    - **Tested:** 8 more checks (34 total), including an iOS-role backend person getting, and seeing, an Android backend task while being refused as its frontend person.
+  - **App:** `getRoleCategories()` (`lib/data.ts`, cached, tag `role-categories`) is loaded once by the app layout into `RoleCategoriesProvider` (`components/RoleCategories.tsx`). Components read it with `useRoleCategories()`. `lib/bug-area.ts` is now data-driven (`suggestArea(text, roleCats, bugCats, bugCategoryId)`, `categoryOf`, `isArea`, `shortLabel`, colours by name). Automation routes validate an `area` against the table.
+  - **Tasks page:** Category column, filter, badge and export. "New task" suggests the category and offers "Auto: least busy in …" as the assignee.
+  - **Deploy order:** apply 0043 and deploy **together**. 0043 drops the four project columns that the previous build's Bugs page reads, and the new build reads `project_area_developers`.
 - **Admin verify queue (2026-10-01, deployed `87a0ab75`):** My Queue shows admins "Fixed: waiting for you to verify": every fixed / ready-for-retest bug across projects, oldest first, with who marked it fixed and when (from `audit_log`), and Close / Reopen (`VerifyFixActions` in `components/QueueActions.tsx`). No migration.
 
 ### Task visibility + done-needs-approval (2026-09-12)
@@ -221,6 +239,7 @@ Core tables (see `/supabase/schema.sql` for full DDL, types, and constraints):
 
 - `profiles` — extends `auth.users`, holds role and `dev_rank` (lead/junior developer, 0040)
 - `projects`, `project_members` — one project per app being tested
+- `role_categories`, `project_area_developers` — the work areas bugs and tasks are filed under and auto-assigned by, and each project's person per area (migration 0043)
 - `requirements` → `test_cases` — traceability chain, scoped to a project
 - `bug_categories` — templates: default severity, template steps, keyword hints for
   auto-severity suggestion

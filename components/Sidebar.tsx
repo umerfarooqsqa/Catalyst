@@ -170,6 +170,7 @@ export default function Sidebar({
             <SectionLabel>Admin</SectionLabel>
             <NavLink href="/admin/users" label="Users" icon="users" />
             <NavLink href="/admin/roles" label="Roles" icon="shield" />
+            <NavLink href="/admin/role-categories" label="Role categories" icon="users" />
             <NavLink href="/admin/categories" label="Bug categories" icon="tag" />
             <NavLink href="/admin/audit-log" label="Audit log" icon="clock" />
           </>

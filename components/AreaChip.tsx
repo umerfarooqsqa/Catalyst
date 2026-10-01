@@ -1,7 +1,10 @@
-import { cx } from "@/components/ui";
-import { AREA_COLORS, AREA_SHORT, isBugArea } from "@/lib/bug-area";
+"use client";
 
-/** Frontend / Backend badge (migration 0041). `showMissing` renders "Area not set" for null. */
+import { cx } from "@/components/ui";
+import { useRoleCategories } from "@/components/RoleCategories";
+import { categoryOf, colorClass } from "@/lib/bug-area";
+
+/** A role category badge (migration 0043). `showMissing` renders "Category not set" for null. */
 export default function AreaChip({
   area,
   showMissing = false,
@@ -11,7 +14,8 @@ export default function AreaChip({
   showMissing?: boolean;
   className?: string;
 }) {
-  if (!isBugArea(area)) {
+  const cat = categoryOf(useRoleCategories(), area);
+  if (!cat) {
     return showMissing ? (
       <span
         className={cx(
@@ -19,19 +23,20 @@ export default function AreaChip({
           className,
         )}
       >
-        Area not set
+        Category not set
       </span>
     ) : null;
   }
   return (
     <span
+      title={cat.label}
       className={cx(
         "inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium",
-        AREA_COLORS[area],
+        colorClass(cat.color),
         className,
       )}
     >
-      {AREA_SHORT[area]}
+      {cat.short_label}
     </span>
   );
 }

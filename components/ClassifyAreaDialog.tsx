@@ -3,9 +3,10 @@
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge, Button, cx } from "@/components/ui";
+import { useRoleCategories } from "@/components/RoleCategories";
 import { SEVERITY_LABELS } from "@/lib/severity";
 import { titleCase } from "@/lib/format";
-import { AREAS, AREA_SHORT, areaPatch, suggestArea } from "@/lib/bug-area";
+import { areaPatch, shortLabel, suggestArea } from "@/lib/bug-area";
 import type { AreaDevelopers, BugArea } from "@/lib/bug-area";
 import type { BugCategory, BugWithJoins } from "@/lib/types/models";
 
@@ -29,15 +30,16 @@ export default function ClassifyAreaDialog({
   onClose: () => void;
   onDone: (saved: number, moved: number) => void;
 }) {
+  const roleCats = useRoleCategories();
   const suggestions = useMemo(
     () =>
       new Map(
         bugs.map((b) => [
           b.id,
-          suggestArea(`${b.title} ${b.description ?? ""} ${b.steps_to_reproduce ?? ""}`, categories, b.category_id),
+          suggestArea(`${b.title} ${b.description ?? ""} ${b.steps_to_reproduce ?? ""}`, roleCats, categories, b.category_id),
         ]),
       ),
-    [bugs, categories],
+    [bugs, roleCats, categories],
   );
   const [picked, setPicked] = useState<Map<string, BugArea | null>>(
     () => new Map(bugs.map((b) => [b.id, suggestions.get(b.id)?.area ?? null])),
@@ -46,10 +48,9 @@ export default function ClassifyAreaDialog({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const chosen = [...picked.values()].filter(Boolean).length;
-  const anyDeveloper = AREAS.some((a) => developers[a]);
+  const withPerson = roleCats.filter((c) => developers.areas[c.key]);
 
-  const pick = (id: string, area: BugArea | null) =>
-    setPicked((m) => new Map(m).set(id, m.get(id) === area ? null : area));
+  const pick = (id: string, area: BugArea | null) => setPicked((m) => new Map(m).set(id, area));
 
   async function save() {
     setBusy(true);
@@ -85,7 +86,7 @@ export default function ClassifyAreaDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-grid-line bg-white px-4 py-3 sm:px-5">
-          <h2 className="font-semibold text-slate-800">Classify bugs by area</h2>
+          <h2 className="font-semibold text-slate-800">Classify bugs by role category</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
             ✕
           </button>
@@ -95,7 +96,7 @@ export default function ClassifyAreaDialog({
             {bugs.length} bug{bugs.length === 1 ? " has" : "s have"} no area yet. The suggestion from each bug&apos;s
             text is already picked; change any that are wrong. Bugs left without a choice stay unclassified. Frontend =
             the app&apos;s screens and layout; backend = the server/API (wrong data, failed orders, feed, login
-            service); database = queries and records; DevOps = servers, deployments, downtime.
+            service), and so on for each role category.
           </p>
           <ul className="divide-y divide-grid-line rounded-md border border-grid-line">
             {bugs.map((b) => {
@@ -112,39 +113,36 @@ export default function ClassifyAreaDialog({
                       <Badge tone="blue">{titleCase(b.status)}</Badge>
                     </span>
                     <span className="mt-0.5 block text-xs text-slate-400">
-                      {s ? `suggested ${AREA_SHORT[s.area]}: ${s.matched.join(", ") || "category"}` : "no suggestion"}
+                      {s ? `suggested ${shortLabel(roleCats, s.area)}: ${s.matched.join(", ") || "bug category"}` : "no suggestion"}
                     </span>
                   </span>
-                  <span className="inline-flex shrink-0 gap-1" role="radiogroup" aria-label={`Area for ${b.title}`}>
-                    {AREAS.map((a) => (
-                      <button
-                        key={a}
-                        type="button"
-                        role="radio"
-                        aria-checked={cur === a}
-                        onClick={() => pick(b.id, a)}
-                        className={cx(
-                          "rounded-md border px-2.5 py-1 text-xs",
-                          cur === a
-                            ? "border-brand bg-brand text-white"
-                            : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
-                        )}
-                      >
-                        {AREA_SHORT[a]}
-                      </button>
+                  <select
+                    value={cur ?? ""}
+                    onChange={(e) => pick(b.id, e.target.value || null)}
+                    aria-label={`Category for ${b.title}`}
+                    className={cx(
+                      "shrink-0 rounded-md border px-2 py-1 text-xs",
+                      cur ? "border-brand bg-brand/5 text-slate-800" : "border-slate-300 text-slate-500",
+                    )}
+                  >
+                    <option value="">Leave unclassified</option>
+                    {roleCats.map((c) => (
+                      <option key={c.key} value={c.key}>
+                        {c.label}
+                      </option>
                     ))}
-                  </span>
+                  </select>
                 </li>
               );
             })}
           </ul>
-          {anyDeveloper && (
+          {withPerson.length > 0 && (
             <label className="flex items-start gap-2 text-xs text-slate-600">
               <input type="checkbox" className="mt-0.5" checked={reassign} onChange={(e) => setReassign(e.target.checked)} />
               <span>
-                Move open bugs that are unassigned or still with the project developer to the area&apos;s developer (
-                {AREAS.map((a) => `${AREA_SHORT[a]}: ${developers[a] ? developerName(developers[a]!) : "none"}`).join(", ")}
-                ). Bugs assigned to someone else keep their assignee.
+                Move open bugs that are unassigned or still with the project developer to the category&apos;s person (
+                {withPerson.map((c) => `${c.short_label}: ${developerName(developers.areas[c.key]!)}`).join(", ")}). Bugs
+                assigned to someone else keep their assignee.
               </span>
             </label>
           )}

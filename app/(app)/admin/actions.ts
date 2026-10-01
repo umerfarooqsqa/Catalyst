@@ -7,13 +7,18 @@ import { getAdminClient } from "@/lib/supabase/admin";
 import { requireProfile } from "@/lib/auth";
 import { canAdminister } from "@/lib/permissions";
 import { DEV_RANKS, ROLE_LEVELS } from "@/lib/types/models";
-import { isBugArea } from "@/lib/bug-area";
 import type { DevRank, RoleLevel, Severity } from "@/lib/types/models";
 
 async function assertAdmin() {
   const { level } = await requireProfile();
   if (!canAdminister(level)) throw new Error("Not authorized");
   return createClient();
+}
+
+/** The keys of the existing role categories (migration 0043). */
+async function roleCategoryKeys(supabase: Awaited<ReturnType<typeof createClient>>): Promise<Set<string>> {
+  const { data } = await supabase.from("role_categories").select("key");
+  return new Set((data ?? []).map((c) => c.key));
 }
 
 function slugify(s: string) {
@@ -42,7 +47,8 @@ export async function updateUser(formData: FormData) {
   const dev_rank =
     roleRow?.level === "contributor" && DEV_RANKS.includes(rank as DevRank) ? rank : null;
   // Skills: any combination of frontend / backend / database / devops (migration 0042).
-  const skills = [...new Set(formData.getAll("skills").map(String).filter(isBugArea))];
+  const keys = await roleCategoryKeys(supabase);
+  const skills = [...new Set(formData.getAll("skills").map(String).filter((k) => keys.has(k)))];
   const { error } = await supabase
     .from("profiles")
     .update({ role, dev_rank, skills, ...(full_name ? { full_name } : {}) })
@@ -58,7 +64,7 @@ export async function saveCategory(formData: FormData) {
   const default_severity = String(formData.get("default_severity")) as Severity;
   const template_steps = String(formData.get("template_steps") || "") || null;
   const areaRaw = String(formData.get("default_area") || "");
-  const default_area = isBugArea(areaRaw) ? areaRaw : null;
+  const default_area = areaRaw && (await roleCategoryKeys(supabase)).has(areaRaw) ? areaRaw : null;
   const keyword_hints = String(formData.get("keyword_hints") || "")
     .split(",")
     .map((s) => s.trim())
@@ -247,4 +253,80 @@ export async function deleteUser(formData: FormData) {
   const { error } = await admin.auth.admin.deleteUser(id);
   if (error) throw new Error(error.message);
   revalidatePath("/admin/users");
+}
+
+/* --------------------------- Role categories -------------------------- */
+// Admin -> Role categories (migration 0043): the work areas bugs and tasks are filed
+// under and auto-assigned by. RLS (role_categories_admin_write) is the real gate.
+
+function keywordList(raw: FormDataEntryValue | null): string[] {
+  return [
+    ...new Set(
+      String(raw ?? "")
+        .split(/[,\n]/)
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function refreshRoleCategories() {
+  revalidateTag("role-categories");
+  revalidatePath("/admin/role-categories");
+  revalidatePath("/admin/users");
+}
+
+export async function saveRoleCategory(formData: FormData) {
+  const supabase = await assertAdmin();
+  const id = String(formData.get("id") || "") || null;
+  const label = String(formData.get("label") || "").trim();
+  const short_label = String(formData.get("short_label") || "").trim() || label;
+  const description = String(formData.get("description") || "").trim() || null;
+  const keywords = keywordList(formData.get("keywords"));
+  const color = String(formData.get("color") || "slate");
+  const sort_order = Number(formData.get("sort_order")) || 100;
+  // Work that isn't Android- or iOS-specific (backend, DBA): its people work on every platform.
+  const all_platforms = formData.get("all_platforms") === "on";
+  if (!label) throw new Error("A role category needs a name");
+
+  const payload = { label, short_label, description, keywords, color, sort_order, all_platforms };
+  if (id) {
+    const { error } = await supabase.from("role_categories").update(payload).eq("id", id);
+    if (error) throw new Error(error.message);
+  } else {
+    // The key is derived once and never changes (bugs, tasks and people point at it).
+    let key = slugify(short_label).slice(0, 31);
+    if (!/^[a-z]/.test(key)) key = `c_${key}`.slice(0, 31);
+    if (!key || key === "none") throw new Error("Could not derive a key from that name");
+    const { error } = await supabase.from("role_categories").insert({ key, ...payload });
+    if (error) {
+      throw new Error(error.code === "23505" ? `A role category with the key "${key}" already exists` : error.message);
+    }
+  }
+  refreshRoleCategories();
+}
+
+export async function deleteRoleCategory(formData: FormData) {
+  const supabase = await assertAdmin();
+  const id = String(formData.get("id") || "");
+  if (formData.get("confirm") !== "on") throw new Error("Tick the box to confirm deleting the category");
+  const { error } = await supabase.from("role_categories").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  refreshRoleCategories();
+}
+
+/** Put a person in (or take them out of) a role category: their profiles.skills. */
+export async function setRoleCategoryMember(formData: FormData) {
+  const supabase = await assertAdmin();
+  const key = String(formData.get("key") || "");
+  const userId = String(formData.get("user_id") || "");
+  const add = formData.get("op") !== "remove";
+  if (!key || !userId) return;
+  const { data: p, error: rErr } = await supabase.from("profiles").select("skills").eq("id", userId).maybeSingle();
+  if (rErr || !p) throw new Error(rErr?.message ?? "No such user");
+  const current = (p.skills ?? []) as string[];
+  const skills = add ? [...new Set([...current, key])] : current.filter((s) => s !== key);
+  const { error } = await supabase.from("profiles").update({ skills }).eq("id", userId);
+  if (error) throw new Error(error.message);
+  refreshRoleCategories();
 }
