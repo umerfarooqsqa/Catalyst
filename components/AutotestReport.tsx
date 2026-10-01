@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { AREAS, AREA_LABELS, areaFromTestKey, suggestArea } from "@/lib/bug-area";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge, Button, Card, PageHeader, Stat } from "@/components/ui";
@@ -425,6 +426,13 @@ function FindingItem({
   const [err, setErr] = useState<string | null>(null);
   const [title, setTitle] = useState(f.title.replace(/^Failed: /, ""));
   const [severity, setSeverity] = useState(SEVERITIES.includes(f.severity ?? "") ? f.severity! : "minor");
+  // Frontend / backend (migration 0041): from the test's path, else suggested from what it saw.
+  const [area, setArea] = useState<string>(
+    () =>
+      areaFromTestKey(f.test) ??
+      suggestArea(`${f.title} ${f.detail ?? ""} ${f.error ?? ""} ${(f.steps ?? []).join(" ")}`)?.area ??
+      "",
+  );
   const [description, setDescription] = useState(
     [f.detail, f.error ? `What the test saw:\n${f.error}` : "", f.test ? `Found by the auto-test: ${f.test}` : ""]
       .filter(Boolean)
@@ -438,7 +446,7 @@ function FindingItem({
     const res = await fetch(`/api/projects/${projectId}/reports/${reportId}/file-bug`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ finding: index, title, severity, description, steps_to_reproduce: steps }),
+      body: JSON.stringify({ finding: index, title, severity, area: area || null, description, steps_to_reproduce: steps }),
     });
     const body = await res.json().catch(() => ({}));
     setBusy(false);
@@ -491,6 +499,15 @@ function FindingItem({
                 <select value={severity} onChange={(e) => setSeverity(e.target.value)} className="rounded-md border border-slate-300 px-2 py-1">
                   {SEVERITIES.map((x) => (
                     <option key={x}>{x}</option>
+                  ))}
+                </select>
+                <label className="text-slate-600">Area</label>
+                <select value={area} onChange={(e) => setArea(e.target.value)} className="rounded-md border border-slate-300 px-2 py-1">
+                  <option value="">Not set</option>
+                  {AREAS.map((a) => (
+                    <option key={a} value={a}>
+                      {AREA_LABELS[a]}
+                    </option>
                   ))}
                 </select>
                 <span className="text-xs text-slate-500">filed under v{version ?? "?"}</span>

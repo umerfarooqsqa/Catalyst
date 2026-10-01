@@ -7,6 +7,7 @@ import { getAdminClient } from "@/lib/supabase/admin";
 import { requireProfile } from "@/lib/auth";
 import { canAdminister } from "@/lib/permissions";
 import { DEV_RANKS, ROLE_LEVELS } from "@/lib/types/models";
+import { isBugArea } from "@/lib/bug-area";
 import type { DevRank, RoleLevel, Severity } from "@/lib/types/models";
 
 async function assertAdmin() {
@@ -40,9 +41,11 @@ export async function updateUser(formData: FormData) {
   const { data: roleRow } = await supabase.from("roles").select("level").eq("key", role).maybeSingle();
   const dev_rank =
     roleRow?.level === "contributor" && DEV_RANKS.includes(rank as DevRank) ? rank : null;
+  // Skills: any combination of frontend / backend / database / devops (migration 0042).
+  const skills = [...new Set(formData.getAll("skills").map(String).filter(isBugArea))];
   const { error } = await supabase
     .from("profiles")
-    .update({ role, dev_rank, ...(full_name ? { full_name } : {}) })
+    .update({ role, dev_rank, skills, ...(full_name ? { full_name } : {}) })
     .eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/admin/users");
@@ -54,6 +57,8 @@ export async function saveCategory(formData: FormData) {
   const name = String(formData.get("name") || "").trim();
   const default_severity = String(formData.get("default_severity")) as Severity;
   const template_steps = String(formData.get("template_steps") || "") || null;
+  const areaRaw = String(formData.get("default_area") || "");
+  const default_area = isBugArea(areaRaw) ? areaRaw : null;
   const keyword_hints = String(formData.get("keyword_hints") || "")
     .split(",")
     .map((s) => s.trim())
@@ -63,6 +68,7 @@ export async function saveCategory(formData: FormData) {
   const payload = {
     name,
     default_severity: default_severity as never,
+    default_area,
     template_steps,
     keyword_hints,
   };

@@ -256,6 +256,7 @@ export type Database = {
           platform: string | null
           recurring_count: number
           category_id: string | null
+          area: string | null
           created_at: string
           created_by: string | null
           description: string | null
@@ -276,6 +277,7 @@ export type Database = {
           platform?: string | null
           recurring_count?: number
           category_id?: string | null
+          area?: string | null
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -296,6 +298,7 @@ export type Database = {
           platform?: string | null
           recurring_count?: number
           category_id?: string | null
+          area?: string | null
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -345,6 +348,7 @@ export type Database = {
       bug_categories: {
         Row: {
           created_at: string
+          default_area: string | null
           default_severity: Database["public"]["Enums"]["bug_severity"] | null
           id: string
           keyword_hints: string[] | null
@@ -353,6 +357,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          default_area?: string | null
           default_severity?: Database["public"]["Enums"]["bug_severity"] | null
           id?: string
           keyword_hints?: string[] | null
@@ -361,6 +366,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          default_area?: string | null
           default_severity?: Database["public"]["Enums"]["bug_severity"] | null
           id?: string
           keyword_hints?: string[] | null
@@ -379,6 +385,7 @@ export type Database = {
           assignee_id: string | null
           base_page_id: string | null
           category_id: string | null
+          area: string | null
           closed_at: string | null
           copied_from_bug_id: string | null
           created_at: string
@@ -407,6 +414,7 @@ export type Database = {
           assignee_id?: string | null
           base_page_id?: string | null
           category_id?: string | null
+          area?: string | null
           closed_at?: string | null
           copied_from_bug_id?: string | null
           created_at?: string
@@ -435,6 +443,7 @@ export type Database = {
           assignee_id?: string | null
           base_page_id?: string | null
           category_id?: string | null
+          area?: string | null
           closed_at?: string | null
           copied_from_bug_id?: string | null
           created_at?: string
@@ -643,6 +652,7 @@ export type Database = {
           full_name: string
           id: string
           role: string
+          skills: string[]
           updated_at: string
         }
         Insert: {
@@ -653,6 +663,7 @@ export type Database = {
           full_name: string
           id: string
           role?: string
+          skills?: string[]
           updated_at?: string
         }
         Update: {
@@ -663,6 +674,7 @@ export type Database = {
           full_name?: string
           id?: string
           role?: string
+          skills?: string[]
           updated_at?: string
         }
         Relationships: [
@@ -711,6 +723,10 @@ export type Database = {
       projects: {
         Row: {
           assigned_developer_id: string | null
+          frontend_developer_id: string | null
+          backend_developer_id: string | null
+          database_developer_id: string | null
+          devops_developer_id: string | null
           notify_emails: string[]
           created_at: string
           created_by: string | null
@@ -726,6 +742,10 @@ export type Database = {
         }
         Insert: {
           assigned_developer_id?: string | null
+          frontend_developer_id?: string | null
+          backend_developer_id?: string | null
+          database_developer_id?: string | null
+          devops_developer_id?: string | null
           notify_emails?: string[]
           created_at?: string
           created_by?: string | null
@@ -741,6 +761,10 @@ export type Database = {
         }
         Update: {
           assigned_developer_id?: string | null
+          frontend_developer_id?: string | null
+          backend_developer_id?: string | null
+          database_developer_id?: string | null
+          devops_developer_id?: string | null
           notify_emails?: string[]
           created_at?: string
           created_by?: string | null
@@ -1328,7 +1352,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      assign_project_developer: { Args: { p_project: string; p_developer: string | null }; Returns: number }
+      assign_project_developer: { Args: { p_project: string; p_developer: string | null; p_area?: string | null }; Returns: number }
       profile_platform: { Args: { p_user: string }; Returns: string }
       user_platform: { Args: never; Returns: string }
       can_see_project: { Args: { p_project: string }; Returns: boolean }

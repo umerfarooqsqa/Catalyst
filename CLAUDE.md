@@ -162,6 +162,27 @@ rewrite.
 - **Tested** before applying, in one rolled-back transaction with 0037–0040 and synthetic users: 32 checks, 0 failures. Covered: hand on / move to junior 2 / take back (bugs and tasks), refusals (iOS junior, unranked developer, someone else's bug, editing a handed-on item, a junior reassigning or clearing `delegated_by`), the lead still seeing the task and its history, QA reassignment clearing `delegated_by`, and self-promotion to admin or lead refused.
 - **Deploy order:** apply 0040 **before** deploying. My Queue joins `profiles!bugs_delegated_by_fkey`, which fails until the column exists.
 
+### Frontend / backend bugs (2026-10-01, migration 0041; applied 2026-10-01 after a 23-check rolled-back test, deployed `81f2f167-b1fc-4b53-8f6b-827582b4079b`, rollback `npx wrangler rollback 438d9f04-b4f4-4866-af61-f9f4b8f4c5f0`)
+- **What it means (decided with the user):** frontend = the app UI (screens, layout, navigation); backend = the trading server/API (wrong data, failed orders, feed, login service). `bugs.area` and `base_page.area` are `frontend`, `backend` or null ("not set").
+- **Suggested, never forced:** `lib/bug-area.ts::suggestArea` scores whole-word hints (built-in, plus each category's `keyword_hints` toward its `bug_categories.default_area`, plus 2 for the chosen category's area); a tie gives no suggestion. Admin → Categories sets each category's "Usually".
+- **Who sets it:** QA/admin. It is required in "Log a bug" (pre-filled by the suggestion). Developers can't change it: 0040's developer-rights trigger already refuses every column but status.
+- **Where it shows:**
+  - Bugs page: Area column (editable, sortable), "Area" filter (incl. "Not set"), card badge, bulk "Set area…", export column, and "Classify N bugs" (`components/ClassifyAreaDialog.tsx`: every open not-set bug with its suggestion pre-picked).
+  - Drawer: area select with the suggestion and "Use it"; "Copy to iOS/Android" copies it.
+  - Bug Library: filter, per-entry select, new-entry field, import column (`area`/`layer` headers, else suggested), export; copying to a project or platform carries it.
+  - My Queue, Retest and the project overview ("Open bugs by area"). `components/AreaChip.tsx` is the badge.
+- **A developer per area:** `projects.frontend_developer_id` / `backend_developer_id`; `assigned_developer_id` (0035) is now the developer for bugs with no area and the fallback. The Bugs page bar has three pickers. `assign_project_developer(project, developer, area)` sets one and assigns that area's open, unassigned bugs; `trg_bugs_default_assignee` routes a new bug by its area.
+  - **Moving with the area:** `areaPatch()` moves an open bug to the new area's developer only when it is unassigned or still with the developer its old area routed it to. A bug assigned by hand, or handed to a junior, keeps its assignee. The drawer and bulk/classify have a checkbox for it; the sheet cell always applies it.
+  - The new columns started as a copy of `assigned_developer_id`, so routing was unchanged until QA picked someone.
+- **Automation:** the aktrade runner sends `area` per failure (conftest `_test_area`: API-only test = backend, else frontend) and in "Export to catalyst". Without it, `areaFromTestKey` derives it from the test path (`akdapiautomation/` = backend, `tests/` = frontend). An existing bug's area is never overwritten by automation. The auto-test "File as bug" form has an area select.
+- **Deploy order:** apply 0041 **before** deploying (the pages read the new columns).
+- **Four areas + skills (2026-10-01, migration 0042; tested in a rolled-back transaction, 15 checks; applied and deployed `87a0ab75-b44c-4f08-977b-78f94dfaf14e`, rollback `npx wrangler rollback 81f2f167-b1fc-4b53-8f6b-827582b4079b`):**
+  - **Areas:** also `database` (DBA: queries, missing/duplicate records, deadlocks) and `devops` (servers, deployments, downtime, SSL, gateways), on bugs, the library and category defaults. The suggestion has hints for both; a phrase hint counts 2, a word 1.
+  - **A developer per area:** `projects.database_developer_id` / `devops_developer_id`, same platform check, routing and `assign_project_developer` support. They start empty, so those bugs go to the no-area developer until QA picks someone. The Bugs page bar has five pickers.
+  - **Skills:** `profiles.skills text[]`, any combination of the four (decided with the user: one person can have several). Admin → Users has a tick box per skill; only an admin can change them (`trg_profiles_protect_admin_fields`).
+  - **What skills do:** an area's developer picker lists the developers with that skill (`peopleForArea`; everyone while nobody has it yet). A bug's assignee lists show people with the bug's area skill first (`components/AssigneeOptions.tsx`).
+- **Admin verify queue (2026-10-01, deployed `87a0ab75`):** My Queue shows admins "Fixed: waiting for you to verify": every fixed / ready-for-retest bug across projects, oldest first, with who marked it fixed and when (from `audit_log`), and Close / Reopen (`VerifyFixActions` in `components/QueueActions.tsx`). No migration.
+
 ### Task visibility + done-needs-approval (2026-09-12)
 
 Two deliberate departures from the "everyone sees every sheet" default, added on request:

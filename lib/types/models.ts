@@ -62,6 +62,7 @@ export type RequirementDocStatus =
   | "failed";
 export type Severity = "critical" | "major" | "minor" | "trivial";
 export type Priority = "high" | "medium" | "low";
+export type { BugArea } from "@/lib/bug-area";
 export type BugStatus =
   | "open"
   | "in_progress"
@@ -84,6 +85,8 @@ export type MemberOption = {
   full_name: string;
   role: string;
   roles: { label: string; assignable: boolean; level?: string; platform?: string | null } | null;
+  /** frontend / backend / database / devops, any combination (profiles.skills, migration 0042). */
+  skills?: string[] | null;
 };
 
 /** A bug row joined with the display fields the table views need. */

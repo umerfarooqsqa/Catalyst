@@ -4,6 +4,7 @@ import { canCreateBugs } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { serviceRoleClient } from "@/lib/supabase/admin";
 import type { Database, Json } from "@/lib/types/database";
+import { isBugArea } from "@/lib/bug-area";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -16,7 +17,8 @@ type Finding = { title?: string; shot?: string | null; bug_id?: string; [k: stri
  * "File as bug" on an auto-test report (migration 0039): a person turns one finding into a
  * bug of this project, under the report's app version, after reviewing and editing it.
  *
- * POST {finding: <index>, title, description, steps_to_reproduce, severity}
+ * POST {finding: <index>, title, description, steps_to_reproduce, severity, area?}
+ *   area: frontend | backend (migration 0041); anything else is filed as not set.
  * - Session auth, QA/admin (canCreateBugs). The report is read, the bug inserted and the
  *   screenshot copied with the person's own session, so RLS applies to all of it.
  * - The finding's failure screenshot becomes a normal attachment of the bug.
@@ -69,6 +71,7 @@ export async function POST(
         description: String(body?.description ?? "").slice(0, 8000) || null,
         steps_to_reproduce: String(body?.steps_to_reproduce ?? "").slice(0, 8000) || null,
         severity,
+        area: isBugArea(body?.area) ? body.area : null,
         release_id: row.release_id,
         source: "automation",
         automation_key: key,

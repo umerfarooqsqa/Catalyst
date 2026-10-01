@@ -7,7 +7,10 @@ import { attachBugContext, captureBugContext, pathAsSteps } from "@/lib/bug-cont
 import { usePhoneHelper } from "@/lib/phone-helper-available";
 import { Button, Badge, cx } from "@/components/ui";
 import DueInput from "@/components/DueInput";
+import AssigneeOptions from "@/components/AssigneeOptions";
 import { suggestSeverity, SEVERITY_LABELS } from "@/lib/severity";
+import { AREAS, AREA_LABELS, isBugArea, suggestArea } from "@/lib/bug-area";
+import type { BugArea } from "@/lib/bug-area";
 import type {
   ReleaseOption,
   BasePageEntry,
@@ -57,6 +60,9 @@ export default function NewBugDialog({
   const [severity, setSeverity] = useState<Severity>("minor");
   const [severityTouched, setSeverityTouched] = useState(false);
   const [priority, setPriority] = useState("medium");
+  // Area (migrations 0041, 0042): required, suggested from the text until QA picks.
+  const [area, setArea] = useState<BugArea | null>(null);
+  const [areaTouched, setAreaTouched] = useState(false);
   const [categoryId, setCategoryId] = useState("");
   const [requirementId, setRequirementId] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
@@ -86,6 +92,10 @@ export default function NewBugDialog({
       setSteps(seed.steps_to_reproduce ?? "");
       setSeverity(seed.severity);
       setSeverityTouched(true);
+      if (isBugArea(seed.area)) {
+        setArea(seed.area);
+        setAreaTouched(true);
+      }
       setCategoryId(seed.category_id ?? "");
       setBasePageId(seed.id);
     }
@@ -163,6 +173,15 @@ export default function NewBugDialog({
     if (!severityTouched && autoSev) setSeverity(autoSev.severity);
   }, [autoSev, severityTouched]);
 
+  // Same for the area: the text plus the chosen category's usual area.
+  const autoArea = useMemo(
+    () => suggestArea(`${title} ${description} ${steps}`, categories, categoryId),
+    [title, description, steps, categories, categoryId],
+  );
+  useEffect(() => {
+    if (!areaTouched) setArea(autoArea?.area ?? null);
+  }, [autoArea, areaTouched]);
+
   function applyCategoryTemplate(id: string) {
     setCategoryId(id);
     const cat = categories.find((c) => c.id === id);
@@ -182,6 +201,10 @@ export default function NewBugDialog({
     setSteps(mb.steps_to_reproduce ?? "");
     setSeverity(mb.severity);
     setSeverityTouched(true);
+    if (isBugArea(mb.area)) {
+      setArea(mb.area);
+      setAreaTouched(true);
+    }
     setCategoryId(mb.category_id ?? "");
     setBasePageId(mb.id);
     setDupes([]);
@@ -194,6 +217,8 @@ export default function NewBugDialog({
     setSeverity("minor");
     setSeverityTouched(false);
     setPriority("medium");
+    setArea(null);
+    setAreaTouched(false);
     setCategoryId("");
     setRequirementId("");
     setAssigneeId("");
@@ -206,6 +231,10 @@ export default function NewBugDialog({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!area) {
+      setError("Choose the bug's area: frontend, backend, database or DevOps.");
+      return;
+    }
     setBusy(true);
     setError(null);
     const supabase = createClient();
@@ -216,6 +245,7 @@ export default function NewBugDialog({
       steps_to_reproduce: steps.trim() || null,
       severity,
       priority: priority as never,
+      area,
       category_id: categoryId || null,
       requirement_id: requirementId || null,
       assignee_id: assigneeId || null,
@@ -409,6 +439,49 @@ export default function NewBugDialog({
           </div>
 
           <div>
+            <span className="mb-1 block text-sm font-medium text-slate-700">
+              Area
+              {autoArea && !areaTouched && (
+                <span className="ml-1 text-xs font-normal text-brand">
+                  (suggested: {AREA_LABELS[autoArea.area]})
+                </span>
+              )}
+            </span>
+            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Area">
+              {AREAS.map((a) => (
+                <button
+                  key={a}
+                  type="button"
+                  role="radio"
+                  aria-checked={area === a}
+                  onClick={() => {
+                    setArea(a);
+                    setAreaTouched(true);
+                  }}
+                  className={cx(
+                    "rounded-md border px-3 py-1.5 text-sm",
+                    area === a
+                      ? autoArea && !areaTouched
+                        ? "border-brand/60 bg-brand/10 font-medium text-brand-fg"
+                        : "border-brand bg-brand text-white"
+                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
+                  )}
+                >
+                  {AREA_LABELS[a]}
+                </button>
+              ))}
+            </div>
+            {autoArea && autoArea.matched.length > 0 && !areaTouched ? (
+              <p className="mt-1 text-xs text-slate-400">matched: {autoArea.matched.join(", ")}</p>
+            ) : !area ? (
+              <p className="mt-1 text-xs text-slate-400">
+                Frontend = the app&apos;s screens and layout. Backend = wrong data, failed orders, feed, login service.
+                Database = queries and records. DevOps = servers, deployments, downtime.
+              </p>
+            ) : null}
+          </div>
+
+          <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">
               Description
             </label>
@@ -500,12 +573,7 @@ export default function NewBugDialog({
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               >
                 <option value="">— unassigned —</option>
-                {members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.full_name}
-                    {m.roles?.label ? ` · ${m.roles.label}` : ""}
-                  </option>
-                ))}
+                <AssigneeOptions people={members} area={area} withRole />
               </select>
             </div>
             <div>
@@ -558,7 +626,7 @@ export default function NewBugDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={busy || !title.trim()}>
+            <Button type="submit" disabled={busy || !title.trim() || !area}>
               {busy ? (withContext && house ? "Saving + capturing…" : "Saving…") : "Create bug"}
             </Button>
           </div>

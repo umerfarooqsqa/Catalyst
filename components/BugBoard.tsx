@@ -17,6 +17,11 @@ import BugDrawer from "@/components/BugDrawer";
 import DueInput from "@/components/DueInput";
 import VersionChip from "@/components/VersionChip";
 import VersionsPanel from "@/components/VersionsPanel";
+import AreaChip from "@/components/AreaChip";
+import AssigneeOptions from "@/components/AssigneeOptions";
+import ClassifyAreaDialog from "@/components/ClassifyAreaDialog";
+import { AREAS, AREA_LABELS, AREA_SHORT, NO_DEVELOPERS, SKILL_LABELS, areaPatch, isBugArea, peopleForArea, skillsOf } from "@/lib/bug-area";
+import type { AreaDevelopers, BugArea } from "@/lib/bug-area";
 import { SEVERITY_LABELS } from "@/lib/severity";
 import { fmtDateTime, titleCase } from "@/lib/format";
 import { fmtDueShort } from "@/lib/parseDue";
@@ -56,18 +61,19 @@ type Props = {
   siblingProject: { id: string; name: string; platform: string } | null;
   /** The project's platform: only people who can see it are offered as assignees. */
   projectPlatform?: string | null;
-  /** The developer the whole project is assigned to (migration 0035). */
-  projectDeveloperId?: string | null;
+  /** The project's developers: per area (migration 0041) and for bugs with no area (0035). */
+  projectDevelopers?: AreaDevelopers;
 };
 
-type SortKey = "title" | "severity" | "priority" | "status" | "due_date";
+type SortKey = "title" | "severity" | "area" | "priority" | "status" | "due_date";
 const SEV_RANK: Record<Severity, number> = {
   critical: 0,
   major: 1,
   minor: 2,
   trivial: 3,
 };
-const NAV_COLS = 7; // title, severity, priority, status, assignee, category, due
+const NAV_COLS = 8; // title, severity, area, priority, status, assignee, category, due
+const AREA_RANK = (a: string | null) => (isBugArea(a) ? AREAS.indexOf(a) : AREAS.length);
 
 export default function BugBoard({
   projectId,
@@ -82,7 +88,7 @@ export default function BugBoard({
   userId,
   siblingProject,
   projectPlatform = null,
-  projectDeveloperId = null,
+  projectDevelopers = NO_DEVELOPERS,
 }: Props) {
   const router = useRouter();
   const params = useSearchParams();
@@ -118,6 +124,9 @@ export default function BugBoard({
 
   const [q, setQ] = useState("");
   const [fSeverity, setFSeverity] = useState("");
+  const [fArea, setFArea] = useState(""); // "" = all, "none" = not set
+  const [classifying, setClassifying] = useState(false);
+  const [moveAutoAssigned, setMoveAutoAssigned] = useState(true);
   const [fStatus, setFStatus] = useState("");
   const [fVersion, setFVersion] = useState(""); // "" = all, "none" = no version
   const [fAssignee, setFAssignee] = useState("");
@@ -156,13 +165,14 @@ export default function BugBoard({
   const [devBusy, setDevBusy] = useState(false);
   const [devMsg, setDevMsg] = useState<string | null>(null);
 
-  // "Assign the whole project": the developer owns every open unassigned bug now and
-  // every new bug from here on (assign_project_developer, migration 0035).
-  async function assignProjectDeveloper(developerId: string | null) {
+  // A developer per area: they get every open, unassigned bug of that area now and every new one
+  // from here on (assign_project_developer, migrations 0035 + 0041). area null = bugs with no area.
+  async function assignProjectDeveloper(area: BugArea | null, developerId: string | null) {
     const name = developerId ? memberNameOf(developerId) : null;
+    const which = area ? `${AREA_SHORT[area].toLowerCase()} bugs` : "bugs with no area";
     if (
       developerId &&
-      !confirm(`Assign this project to ${name}? Every open, unassigned bug goes to them now, and every new bug will too.`)
+      !confirm(`Make ${name} the developer for ${which}? Every open, unassigned one goes to them now, and every new one will too.`)
     )
       return;
     setErr(null);
@@ -171,6 +181,7 @@ export default function BugBoard({
     const { data, error } = await createClient().rpc("assign_project_developer", {
       p_project: projectId,
       p_developer: developerId,
+      p_area: area,
     });
     setDevBusy(false);
     if (error) {
@@ -179,9 +190,29 @@ export default function BugBoard({
     }
     setDevMsg(
       developerId
-        ? `Project assigned to ${name}: ${data ?? 0} open bug(s) assigned to them; new bugs will be too.`
-        : "The project no longer has a developer; new bugs stay unassigned.",
+        ? `${name} now gets ${which}: ${data ?? 0} open bug(s) assigned to them.`
+        : area
+          ? `No ${AREA_SHORT[area].toLowerCase()} developer; those bugs go to the developer for bugs with no area.`
+          : "No developer for bugs with no area; they stay unassigned.",
     );
+    refresh();
+  }
+
+  // Set the area of one bug or the selected bugs; open bugs that were auto-routed follow to the
+  // new area's developer (areaPatch), bugs someone assigned by hand keep their assignee.
+  async function setArea(ids: string[], area: BugArea | null, reassign = true) {
+    setErr(null);
+    const supabase = createClient();
+    for (const id of ids) {
+      const b = bugs.find((x) => x.id === id);
+      if (!b) continue;
+      const { error } = await supabase.from("bugs").update(areaPatch(b, area, projectDevelopers, reassign)).eq("id", id);
+      if (error) {
+        setErr(error.message);
+        break;
+      }
+    }
+    setSelected(new Set());
     refresh();
   }
   function memberNameOf(id: string) {
@@ -265,6 +296,7 @@ export default function BugBoard({
       );
     }
     if (fSeverity) rows = rows.filter((b) => b.severity === fSeverity);
+    if (fArea) rows = rows.filter((b) => (fArea === "none" ? !isBugArea(b.area) : b.area === fArea));
     if (fStatus) rows = rows.filter((b) => b.status === fStatus);
     if (fVersion) rows = rows.filter((b) => (fVersion === "none" ? !b.release_id : b.release_id === fVersion));
     if (fAssignee)
@@ -280,6 +312,10 @@ export default function BugBoard({
         case "severity":
           av = SEV_RANK[a.severity];
           bv = SEV_RANK[b.severity];
+          break;
+        case "area":
+          av = AREA_RANK(a.area);
+          bv = AREA_RANK(b.area);
           break;
         case "priority":
           av = PRIORITIES.indexOf(a.priority);
@@ -300,7 +336,8 @@ export default function BugBoard({
       return av < bv ? -sort.dir : av > bv ? sort.dir : 0;
     });
     return rows;
-  }, [bugs, q, fSeverity, fStatus, fVersion, fAssignee, mineOnly, hideClosed, sort, userId]);
+  }, [bugs, q, fSeverity, fArea, fStatus, fVersion, fAssignee, mineOnly, hideClosed, sort, userId]);
+  const unclassified = useMemo(() => bugs.filter((b) => !isBugArea(b.area) && b.status !== "closed"), [bugs]);
 
   const grid = useGridNav(filtered.length, NAV_COLS);
 
@@ -390,6 +427,7 @@ export default function BugBoard({
           ? `Yes${b.confirmer?.full_name ? ` (${b.confirmer.full_name})` : ""}, ${fmtDateTime(b.version_confirmed_at)}`
           : b.release_id ? "Not yet" : "",
         severity: b.severity,
+        area: isBugArea(b.area) ? AREA_SHORT[b.area] : "",
         priority: b.priority,
         status: b.status,
         category: b.category?.name ?? "",
@@ -404,6 +442,7 @@ export default function BugBoard({
         { key: "app_version", header: "App Version" },
         { key: "version_confirmed", header: "Version Confirmed" },
         { key: "severity", header: "Severity" },
+        { key: "area", header: "Area" },
         { key: "priority", header: "Priority" },
         { key: "status", header: "Status" },
         { key: "category", header: "Category" },
@@ -452,6 +491,11 @@ export default function BugBoard({
         }
         actions={
           <>
+            {isManager(role) && unclassified.length > 0 && (
+              <Button variant="secondary" onClick={() => setClassifying(true)} title="Set the area (frontend, backend, database, DevOps) on bugs that have none">
+                Classify {unclassified.length} bug{unclassified.length === 1 ? "" : "s"}
+              </Button>
+            )}
             <Button variant="secondary" onClick={doExport} disabled={exporting !== null}>
               {exporting ?? "Export .xlsx"}
             </Button>
@@ -467,32 +511,48 @@ export default function BugBoard({
         }
       />
 
-      <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-grid-line bg-grid-head/40 px-2 py-1.5 text-[13px]">
-        <span className="font-medium text-slate-600">Project developer:</span>
-        {isManager(role) ? (
-          <select
-            value={projectDeveloperId ?? ""}
-            disabled={devBusy}
-            onChange={(e) => assignProjectDeveloper(e.target.value || null)}
-            className="rounded-md border border-slate-300 bg-white px-2 py-0.5"
-          >
-            <option value="">— none —</option>
-            {projectDeveloperId && !developers.some((m) => m.id === projectDeveloperId) && (
-              <option value={projectDeveloperId}>{memberNameOf(projectDeveloperId)}</option>
-            )}
-            {developers.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.full_name}
-                {m.roles?.label ? ` · ${m.roles.label}` : ""}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span className="text-slate-800">{projectDeveloperId ? memberNameOf(projectDeveloperId) : "none"}</span>
-        )}
-        <span className="text-xs text-slate-400">
-          {projectDeveloperId ? "new bugs are assigned to them automatically" : "assign the whole project to one developer"}
-        </span>
+      <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md border border-grid-line bg-grid-head/40 px-2 py-1.5 text-[13px]">
+        <span className="font-medium text-slate-600">Developers:</span>
+        {([...AREAS.map((a) => [a, AREA_SHORT[a], projectDevelopers[a]]), [null, "No area", projectDevelopers.none]] as [
+          BugArea | null,
+          string,
+          string | null,
+        ][]).map(([area, label, devId]) => {
+          // People with this area's skill (Admin -> Users); everyone while nobody has it yet.
+          const { list, matched } = peopleForArea(developers, area);
+          return (
+            <label key={label} className="inline-flex items-center gap-1.5">
+              <span className="text-slate-500">{label}</span>
+              {isManager(role) ? (
+                <select
+                  value={devId ?? ""}
+                  disabled={devBusy}
+                  onChange={(e) => assignProjectDeveloper(area, e.target.value || null)}
+                  className="rounded-md border border-slate-300 bg-white px-2 py-0.5"
+                  title={
+                    area && !matched
+                      ? `Nobody has the ${SKILL_LABELS[area]} skill yet (Admin → Users), so every developer is listed`
+                      : undefined
+                  }
+                >
+                  <option value="">— none —</option>
+                  {devId && !list.some((m) => m.id === devId) && (
+                    <option value={devId}>{memberNameOf(devId)}</option>
+                  )}
+                  {list.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.full_name}
+                      {m.roles?.label ? ` · ${m.roles.label}` : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-slate-800">{devId ? memberNameOf(devId) : "none"}</span>
+              )}
+            </label>
+          );
+        })}
+        <span className="text-xs text-slate-400">new bugs go to their area&apos;s developer automatically</span>
         {devMsg && <span className="text-xs text-green-700">{devMsg}</span>}
       </div>
 
@@ -525,6 +585,20 @@ export default function BugBoard({
               {SEVERITY_LABELS[s]}
             </option>
           ))}
+        </select>
+        <select
+          value={fArea}
+          onChange={(e) => setFArea(e.target.value)}
+          className="rounded-md border border-slate-300 px-1.5 py-1"
+          title="Frontend (the app), backend (server/API), database or DevOps"
+        >
+          <option value="">Area: all</option>
+          {AREAS.map((a) => (
+            <option key={a} value={a}>
+              {AREA_SHORT[a]}
+            </option>
+          ))}
+          <option value="none">Not set</option>
         </select>
         <select
           value={fStatus}
@@ -623,6 +697,27 @@ export default function BugBoard({
               </option>
             ))}
           </select>
+          <select
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v) setArea([...selected], v === "none" ? null : (v as BugArea), moveAutoAssigned);
+              e.target.value = "";
+            }}
+            className="rounded-md border border-slate-300 px-1.5 py-0.5"
+            defaultValue=""
+          >
+            <option value="">Set area…</option>
+            {AREAS.map((a) => (
+              <option key={a} value={a}>
+                {AREA_LABELS[a]}
+              </option>
+            ))}
+            <option value="none">Not set</option>
+          </select>
+          <label className="inline-flex items-center gap-1 text-xs text-slate-600" title="Open bugs that are unassigned or still with the project developer move to the area's developer">
+            <input type="checkbox" checked={moveAutoAssigned} onChange={(e) => setMoveAutoAssigned(e.target.checked)} />
+            move to area developer
+          </label>
           <Button variant="danger" onClick={bulkDelete}>
             Delete
           </Button>
@@ -673,6 +768,7 @@ export default function BugBoard({
                   >
                     {SEVERITY_LABELS[b.severity]}
                   </Badge>
+                  <AreaChip area={b.area} showMissing />
                   <Badge tone="blue">{titleCase(b.status)}</Badge>
                   <VersionChip
                     version={b.release?.version}
@@ -728,11 +824,7 @@ export default function BugBoard({
                             {memberName(b.assignee_id)}
                           </option>
                         )}
-                      {assignable.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.full_name}
-                        </option>
-                      ))}
+                      <AssigneeOptions people={assignable} area={b.area} />
                     </select>
                   )}
                   {b.due_date && (
@@ -796,6 +888,9 @@ export default function BugBoard({
                 </th>
                 <th className="min-w-[6.5rem]">
                   <SortHead k="severity">Severity</SortHead>
+                </th>
+                <th className="min-w-[7rem]">
+                  <SortHead k="area">Area</SortHead>
                 </th>
                 <th className="min-w-[6rem]">
                   <SortHead k="priority">Priority</SortHead>
@@ -900,6 +995,26 @@ export default function BugBoard({
 
                     <td {...grid.cellProps(r, 2)}>
                       {!canEdit ? (
+                        <span className="cell-input">{isBugArea(b.area) ? AREA_SHORT[b.area] : "—"}</span>
+                      ) : (
+                        <select
+                          tabIndex={-1}
+                          value={b.area ?? ""}
+                          onChange={(e) => setArea([b.id], (e.target.value || null) as BugArea | null)}
+                          className={cx("cell-input", !b.area && "text-slate-400")}
+                        >
+                          <option value="">Not set</option>
+                          {AREAS.map((a) => (
+                            <option key={a} value={a}>
+                              {AREA_SHORT[a]}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
+
+                    <td {...grid.cellProps(r, 3)}>
+                      {!canEdit ? (
                         <span className="cell-input">{titleCase(b.priority)}</span>
                       ) : (
                       <select
@@ -917,7 +1032,7 @@ export default function BugBoard({
                       )}
                     </td>
 
-                    <td {...grid.cellProps(r, 3)}>
+                    <td {...grid.cellProps(r, 4)}>
                       {statusOptions(b).length > 1 ? (
                         <select
                           tabIndex={-1}
@@ -936,7 +1051,7 @@ export default function BugBoard({
                       )}
                     </td>
 
-                    <td {...grid.cellProps(r, 4)}>
+                    <td {...grid.cellProps(r, 5)}>
                       {!canEdit ? (
                         <span className="cell-input">{b.assignee_id ? memberName(b.assignee_id) : "—"}</span>
                       ) : (
@@ -955,16 +1070,12 @@ export default function BugBoard({
                               {memberName(b.assignee_id)}
                             </option>
                           )}
-                        {assignable.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.full_name}
-                          </option>
-                        ))}
+                        <AssigneeOptions people={assignable} area={b.area} />
                       </select>
                       )}
                     </td>
 
-                    <td {...grid.cellProps(r, 5)}>
+                    <td {...grid.cellProps(r, 6)}>
                       {!canEdit ? (
                         <span className="cell-input">{categories.find((c) => c.id === b.category_id)?.name ?? "—"}</span>
                       ) : (
@@ -986,7 +1097,7 @@ export default function BugBoard({
                       )}
                     </td>
 
-                    <td {...grid.cellProps(r, 6)}>
+                    <td {...grid.cellProps(r, 7)}>
                       {!canEdit ? (
                         <span className="cell-input">{fmtDueShort(b.due_date) || "—"}</span>
                       ) : (
@@ -1039,8 +1150,25 @@ export default function BugBoard({
           assignable={assignable}
           releases={releases}
           siblingProject={siblingProject}
+          categories={categories}
+          projectDevelopers={projectDevelopers}
           onClose={closeDrawer}
           onChanged={refresh}
+        />
+      )}
+
+      {classifying && (
+        <ClassifyAreaDialog
+          bugs={unclassified}
+          categories={categories}
+          developers={projectDevelopers}
+          developerName={memberNameOf}
+          onClose={() => setClassifying(false)}
+          onDone={(saved, moved) => {
+            setClassifying(false);
+            setDevMsg(`Classified ${saved} bug(s)${moved ? `; ${moved} moved to their area's developer` : ""}.`);
+            refresh();
+          }}
         />
       )}
 

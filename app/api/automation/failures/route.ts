@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/admin";
 import { badPlatform, checkAutomationSecret, parsePlatform, resolveRelease } from "@/lib/automation-release";
+import { areaFromTestKey, isBugArea } from "@/lib/bug-area";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Failure = { key: string; title: string; error?: string; steps?: string };
+// area: the runner's guess, frontend (an Appium UI test) or backend (an API test); migration 0041.
+type Failure = { key: string; title: string; error?: string; steps?: string; area?: string };
 
 // A generated test for a portal bug is named test_bug_<first 8 chars of the bug id>_<slug>.
 const BUG_TEST = /test_bug_([0-9a-f]{8})/i;
@@ -27,6 +29,11 @@ const REGRESSED_FROM = new Set(["closed", "fixed", "ready_for_retest"]);
  * updates THAT bug (reopening it if it was closed / fixed / ready for
  * retest) instead of filing a new "[Automation]" duplicate, and leaves its
  * human-written description, steps and release untouched.
+ *
+ * A new bug's area (frontend/backend) is the runner's `area`, else derived from
+ * the test's path (akdapiautomation/ = backend, tests/ = frontend). An existing
+ * bug's area is never changed here: QA may have corrected it. The bug goes to that
+ * area's developer (trg_bugs_default_assignee).
  */
 export async function POST(req: Request) {
   const authError = checkAutomationSecret(req);
@@ -49,7 +56,7 @@ export async function POST(req: Request) {
   const created: string[] = [];
   const updated: string[] = [];
   const recurring: string[] = [];
-  const cols = "id, title, severity, status, release_id, occurrences, description, source";
+  const cols = "id, title, severity, area, status, release_id, occurrences, description, source";
 
   // The project's bug ids, loaded once and only if a test_bug_<id8> test failed.
   let projectBugIds: string[] | null = null;
@@ -76,6 +83,7 @@ export async function POST(req: Request) {
       : await supabase.from("bugs").select(cols).eq("project_id", project.id).eq("automation_key", f.key).maybeSingle();
     if (findErr) return NextResponse.json({ error: findErr.message }, { status: 500 });
 
+    const area = isBugArea(f.area) ? f.area : areaFromTestKey(f.key);
     if (!existing) {
       const { error } = await supabase.from("bugs").insert({
         project_id: project.id,
@@ -83,6 +91,7 @@ export async function POST(req: Request) {
         description,
         steps_to_reproduce: steps,
         severity: "minor",
+        area,
         source: "automation",
         automation_key: f.key,
         release_id: release.id,
@@ -114,19 +123,23 @@ export async function POST(req: Request) {
       recurring.push(f.key);
       const { data: lib } = await supabase
         .from("base_page")
-        .select("id, recurring_count")
+        .select("id, recurring_count, area")
         .eq("source_type", "master_bug")
         .eq("house_slug", String(house))
         .eq("platform", platform)
         .eq("title", existing.title)
         .maybeSingle();
       if (lib) {
-        await supabase.from("base_page").update({ recurring_count: lib.recurring_count + 1 }).eq("id", lib.id);
+        await supabase
+          .from("base_page")
+          .update({ recurring_count: lib.recurring_count + 1, ...(lib.area ? {} : { area: existing.area }) })
+          .eq("id", lib.id);
       } else {
         await supabase.from("base_page").insert({
           title: existing.title,
           description,
           severity: existing.severity,
+          area: existing.area,
           source_type: "master_bug",
           house_slug: String(house),
           platform, // the Bug Library list follows the project the failure came from

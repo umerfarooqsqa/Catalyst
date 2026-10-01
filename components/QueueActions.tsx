@@ -145,3 +145,35 @@ export function DelegateSelect({
     </span>
   );
 }
+
+/**
+ * An admin's check of a bug a developer marked fixed (My Queue, "waiting for you to
+ * verify"): Close when the fix holds, Reopen when it doesn't. Admins are exempt from the
+ * developer-rights trigger (0034), so both are plain status updates.
+ */
+export function VerifyFixActions({ bugId }: { bugId: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function set(next: "closed" | "reopened") {
+    setBusy(true);
+    setErr(null);
+    const { error } = await createClient().from("bugs").update({ status: next }).eq("id", bugId);
+    setBusy(false);
+    if (error) setErr(error.message);
+    else router.refresh();
+  }
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <button className={primary} disabled={busy} onClick={() => set("closed")}>
+        Close: fix verified
+      </button>
+      <button className={btn} disabled={busy} onClick={() => set("reopened")}>
+        Reopen
+      </button>
+      {err && <span className="text-xs text-red-600">{err}</span>}
+    </span>
+  );
+}

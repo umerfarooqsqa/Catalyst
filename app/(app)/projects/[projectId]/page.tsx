@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Card, Stat, Badge } from "@/components/ui";
 import { SEVERITY_LABELS } from "@/lib/severity";
+import { AREAS, AREA_SHORT } from "@/lib/bug-area";
 import { titleCase, fmtRelative } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ export default async function ProjectOverview({
     await Promise.all([
       supabase
         .from("bugs")
-        .select("id, severity, status, due_date")
+        .select("id, severity, area, status, due_date")
         .eq("project_id", projectId),
       supabase.from("tasks").select("id, status").eq("project_id", projectId),
       supabase
@@ -42,6 +43,12 @@ export default async function ProjectOverview({
   const bySeverity = (["critical", "major", "minor", "trivial"] as const).map(
     (s) => ({ s, n: openBugs.filter((b) => b.severity === s).length }),
   );
+  // Open bugs by area (migrations 0041, 0042).
+  const AREA_BAR = { frontend: "bg-sky-500", backend: "bg-violet-500", database: "bg-amber-500", devops: "bg-emerald-500" };
+  const byArea = [
+    ...AREAS.map((a) => ({ label: AREA_SHORT[a], n: openBugs.filter((b) => b.area === a).length, bar: `h-full ${AREA_BAR[a]}` })),
+    { label: "Not set", n: openBugs.filter((b) => !b.area).length, bar: "h-full bg-slate-300" },
+  ];
   const openTasks = (tasks ?? []).filter((t) => t.status !== "done").length;
 
   return (
@@ -87,6 +94,18 @@ export default async function ProjectOverview({
                 <div className="w-6 text-right text-xs font-medium text-slate-700">
                   {n}
                 </div>
+              </div>
+            ))}
+          </div>
+          <h2 className="mb-3 mt-5 text-sm font-semibold text-slate-700">Open bugs by area</h2>
+          <div className="space-y-2">
+            {byArea.map(({ label, n, bar }) => (
+              <div key={label} className="flex items-center gap-3">
+                <div className="w-16 text-xs text-slate-500">{label}</div>
+                <div className="h-4 flex-1 overflow-hidden rounded-sm bg-grid-head">
+                  <div className={bar} style={{ width: `${openBugs.length ? (n / openBugs.length) * 100 : 0}%` }} />
+                </div>
+                <div className="w-6 text-right text-xs font-medium text-slate-700">{n}</div>
               </div>
             ))}
           </div>

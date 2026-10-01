@@ -6,6 +6,7 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Card, Badge, EmptyState } from "@/components/ui";
 import VersionChip from "@/components/VersionChip";
+import AreaChip from "@/components/AreaChip";
 import { canEditBug } from "@/lib/permissions";
 import { SEVERITY_LABELS } from "@/lib/severity";
 import { fmtDateTime, titleCase } from "@/lib/format";
@@ -68,6 +69,7 @@ export default function RetestList({
               <th className="px-3 py-2 text-left font-medium">Bug</th>
               <th className="px-3 py-2 text-left font-medium">Status</th>
               <th className="px-3 py-2 text-left font-medium">Severity</th>
+              <th className="px-3 py-2 text-left font-medium">Area</th>
               <th className="px-3 py-2 text-left font-medium">Category</th>
               <th className="px-3 py-2 text-left font-medium">Assignee</th>
               <th className="px-3 py-2 text-left font-medium">Last updated</th>
@@ -97,6 +99,9 @@ export default function RetestList({
                     <Badge tone={b.severity === "critical" ? "red" : b.severity === "major" ? "amber" : "slate"}>
                       {SEVERITY_LABELS[b.severity]}
                     </Badge>
+                  </td>
+                  <td className="px-3 py-2">
+                    <AreaChip area={b.area} />
                   </td>
                   <td className="px-3 py-2 text-slate-600">{b.category?.name ?? "—"}</td>
                   <td className="px-3 py-2 text-slate-600">{b.assignee?.full_name ?? "Unassigned"}</td>

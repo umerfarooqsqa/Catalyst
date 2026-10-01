@@ -7,16 +7,29 @@ import { Button, Select, cx } from "@/components/ui";
 import { SEVERITIES } from "@/lib/types/models";
 import type { BugCategory, Severity } from "@/lib/types/models";
 import { suggestCategory } from "@/lib/severity";
+import { AREA_SHORT, suggestArea } from "@/lib/bug-area";
+import type { BugArea } from "@/lib/bug-area";
 
-type Field = "title" | "description" | "steps" | "severity" | "expected" | "tags";
+type Field = "title" | "description" | "steps" | "severity" | "area" | "expected" | "tags";
 const FIELDS: { key: Field; label: string; required?: boolean }[] = [
   { key: "title", label: "Title", required: true },
   { key: "description", label: "Description" },
   { key: "expected", label: "Expected behavior (appended to description)" },
   { key: "steps", label: "Steps to reproduce" },
   { key: "severity", label: "Severity" },
+  { key: "area", label: "Area: frontend / backend / database / devops (suggested from the text when empty)" },
   { key: "tags", label: "Tags / Module" },
 ];
+
+/** A sheet's area cell, normalised; null = blank or unknown (then it's suggested). */
+function normArea(v: string): BugArea | null {
+  const s = v.toLowerCase();
+  if (/\b(db|dba|database|sql|data ?base)\b/.test(s)) return "database";
+  if (/\b(devops|dev ops|infra|infrastructure|ops|deploy\w*|server down)\b/.test(s)) return "devops";
+  if (/\b(front\w*|ui|client|app|mobile)\b/.test(s)) return "frontend";
+  if (/\b(back\w*|api|server|service)\b/.test(s)) return "backend";
+  return null;
+}
 
 const SEV_ALIAS: Record<string, Severity> = {
   critical: "critical",
@@ -64,6 +77,7 @@ export default function ImportBugsDialog({
     expected: "",
     steps: "",
     severity: "",
+    area: "",
     tags: "",
   });
   const [busy, setBusy] = useState(false);
@@ -110,7 +124,8 @@ export default function ImportBugsDialog({
         expected: guess(hdrs, "expected"),
         steps: guess(hdrs, "steps", "repro"),
         severity: guess(hdrs, "severity", "priority"),
-        tags: guess(hdrs, "module", "tag", "component", "area"),
+        area: guess(hdrs, "area", "layer", "frontend", "backend", "team"),
+        tags: guess(hdrs, "module", "tag", "component"),
       });
     } catch {
       setErr("Couldn't read that file. Use .xlsx, .xls or .csv.");
@@ -132,11 +147,16 @@ export default function ImportBugsDialog({
         ? val("tags").split(/[,;/]/).map((t) => t.trim()).filter(Boolean)
         : [];
       const cat = suggestCategory(`${title} ${val("description")} ${tags.join(" ")}`, categories);
+      const area =
+        normArea(val("area")) ??
+        suggestArea(`${title} ${val("description")} ${val("steps")} ${tags.join(" ")}`, categories, cat?.id)?.area ??
+        null;
       return {
         title,
         description,
         steps_to_reproduce: val("steps") || null,
         severity,
+        area,
         tags,
         category_id: cat?.id ?? null,
       };
@@ -195,6 +215,7 @@ export default function ImportBugsDialog({
         description: p.description,
         steps_to_reproduce: p.steps_to_reproduce,
         severity: p.severity,
+        area: p.area,
         category_id: p.category_id,
         tags: p.tags,
         created_by: userId,
@@ -308,6 +329,7 @@ export default function ImportBugsDialog({
                     <tr>
                       <th>Title</th>
                       <th>Severity</th>
+                      <th>Area</th>
                       <th>Tags</th>
                       <th className="min-w-[16rem]">Description</th>
                     </tr>
@@ -336,6 +358,7 @@ export default function ImportBugsDialog({
                             )}
                           </td>
                           <td>{p.severity}</td>
+                          <td>{p.area ? AREA_SHORT[p.area] : "—"}</td>
                           <td>{p.tags.join(", ")}</td>
                           <td className="text-slate-500">
                             {p.description?.slice(0, 120)}

@@ -9,6 +9,9 @@ import { fmtDate, titleCase } from "@/lib/format";
 import { exportRows } from "@/lib/export";
 import { canCreateBugs, canManageMasterLibrary } from "@/lib/permissions";
 import ImportBugsDialog from "@/components/ImportBugsDialog";
+import AreaChip from "@/components/AreaChip";
+import { AREAS, AREA_SHORT, AREA_LABELS, isBugArea, suggestArea } from "@/lib/bug-area";
+import type { BugArea } from "@/lib/bug-area";
 import { SEVERITIES } from "@/lib/types/models";
 import type {
   BasePageEntry,
@@ -61,6 +64,7 @@ export default function MasterLibrary({
   const [q, setQ] = useState("");
   const [fSeverity, setFSeverity] = useState("");
   const [fCategory, setFCategory] = useState("");
+  const [fArea, setFArea] = useState(""); // "" = all, "none" = not set
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
@@ -72,6 +76,7 @@ export default function MasterLibrary({
   const [ns, setNs] = useState("");
   const [nsev, setNsev] = useState<Severity>("minor");
   const [ncat, setNcat] = useState("");
+  const [narea, setNarea] = useState<BugArea | "">(""); // "" = use the suggestion
   const [ntags, setNtags] = useState("");
   const [dupes, setDupes] = useState<BasePageEntry[]>([]);
 
@@ -95,6 +100,7 @@ export default function MasterLibrary({
       }
       if (fSeverity) query = query.eq("severity", fSeverity as never);
       if (fCategory) query = query.eq("category_id", fCategory);
+      if (fArea) query = fArea === "none" ? query.is("area", null) : query.eq("area", fArea);
       const { data } = await query
         .order("times_reused", { ascending: false })
         .limit(100);
@@ -118,7 +124,7 @@ export default function MasterLibrary({
     }, 200);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, fSeverity, fCategory, refetchKey, tab]);
+  }, [q, fSeverity, fCategory, fArea, refetchKey, tab]);
 
   // Per-platform counts for the tab badges.
   useEffect(() => {
@@ -214,6 +220,7 @@ export default function MasterLibrary({
       description: mb.description,
       steps_to_reproduce: mb.steps_to_reproduce,
       severity: mb.severity,
+      area: mb.area,
       category_id: mb.category_id,
       base_page_id: mb.id,
       created_by: userId,
@@ -252,6 +259,7 @@ export default function MasterLibrary({
       description: nd.trim() || null,
       steps_to_reproduce: ns.trim() || null,
       severity: nsev,
+      area: narea || newAreaSuggestion?.area || null,
       category_id: ncat || null,
       tags: ntags
         .split(",")
@@ -265,6 +273,7 @@ export default function MasterLibrary({
     setNs("");
     setNsev("minor");
     setNcat("");
+    setNarea("");
     setNtags("");
     setDupes([]);
     setShowNew(false);
@@ -307,6 +316,7 @@ export default function MasterLibrary({
       description: mb.description,
       steps_to_reproduce: mb.steps_to_reproduce,
       severity: mb.severity,
+      area: mb.area,
       category_id: mb.category_id,
       tags: mb.tags,
       created_by: userId,
@@ -316,6 +326,15 @@ export default function MasterLibrary({
     setRefetchKey((k) => k + 1);
     router.refresh();
   }
+
+  // Frontend / backend on a library entry (migration 0041); copied into every bug made from it.
+  async function setEntryArea(id: string, area: BugArea | null) {
+    setErr(null);
+    const { error } = await supabase.from("base_page").update({ area }).eq("id", id);
+    if (error) return setErr(error.message);
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, area } : r)));
+  }
+  const newAreaSuggestion = suggestArea(`${nt} ${nd} ${ns}`, categories, ncat || null);
 
   async function del(id: string) {
     if (!confirm("Delete this master library entry?")) return;
@@ -335,6 +354,7 @@ export default function MasterLibrary({
         description: m.description,
         steps_to_reproduce: m.steps_to_reproduce,
         severity: m.severity,
+        area: isBugArea(m.area) ? AREA_SHORT[m.area] : "",
         category: catName(m.category_id),
         tags: m.tags,
         times_reused: m.times_reused,
@@ -345,6 +365,7 @@ export default function MasterLibrary({
         { key: "description", header: "Description" },
         { key: "steps_to_reproduce", header: "Steps to Reproduce" },
         { key: "severity", header: "Severity" },
+        { key: "area", header: "Area" },
         { key: "category", header: "Category" },
         { key: "tags", header: "Tags" },
         { key: "times_reused", header: "Times Reused" },
@@ -450,7 +471,7 @@ export default function MasterLibrary({
               onChange={(e) => setNs(e.target.value)}
               className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-xs"
             />
-            <div className="grid gap-2 sm:grid-cols-4">
+            <div className="grid gap-2 sm:grid-cols-5">
               <select
                 value={np}
                 onChange={(e) => setNp(e.target.value as "android" | "ios")}
@@ -467,6 +488,21 @@ export default function MasterLibrary({
                 {SEVERITIES.map((s) => (
                   <option key={s} value={s}>
                     {SEVERITY_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={narea}
+                onChange={(e) => setNarea(e.target.value as BugArea | "")}
+                className="rounded-md border border-slate-300 px-2 py-2 text-sm"
+                aria-label="Area"
+              >
+                <option value="">
+                  {newAreaSuggestion ? `Area: ${AREA_SHORT[newAreaSuggestion.area]} (suggested)` : "Area: not set"}
+                </option>
+                {AREAS.map((a) => (
+                  <option key={a} value={a}>
+                    {AREA_LABELS[a]}
                   </option>
                 ))}
               </select>
@@ -565,6 +601,19 @@ export default function MasterLibrary({
             </option>
           ))}
         </select>
+        <select
+          value={fArea}
+          onChange={(e) => setFArea(e.target.value)}
+          className="rounded-md border border-slate-300 px-2 py-1.5"
+        >
+          <option value="">All areas</option>
+          {AREAS.map((a) => (
+            <option key={a} value={a}>
+              {AREA_SHORT[a]}
+            </option>
+          ))}
+          <option value="none">Area not set</option>
+        </select>
       </div>
 
       {err && (
@@ -601,6 +650,23 @@ export default function MasterLibrary({
                     <Badge tone={m.platform === "ios" ? "amber" : m.platform === "android" ? "green" : "slate"}>
                       {m.platform ? TAB_LABEL[m.platform as Tab] : "Unassigned"}
                     </Badge>
+                    {canManage ? (
+                      <select
+                        value={m.area ?? ""}
+                        onChange={(e) => setEntryArea(m.id, (e.target.value || null) as BugArea | null)}
+                        className="rounded-full border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] text-slate-700"
+                        aria-label="Area"
+                      >
+                        <option value="">Area not set</option>
+                        {AREAS.map((a) => (
+                          <option key={a} value={a}>
+                            {AREA_SHORT[a]}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <AreaChip area={m.area} />
+                    )}
                     <h3 className="font-semibold text-slate-800">{m.title}</h3>
                     <span className="text-xs text-slate-400">
                       {catName(m.category_id)}

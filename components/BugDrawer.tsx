@@ -18,6 +18,11 @@ import { attachBugContext, captureBugContext } from "@/lib/bug-context";
 import BugComments from "@/components/BugComments";
 import AttachmentGallery from "@/components/AttachmentGallery";
 import { usePhoneHelper } from "@/lib/phone-helper-available";
+import AreaChip from "@/components/AreaChip";
+import AssigneeOptions from "@/components/AssigneeOptions";
+import { AREAS, AREA_LABELS, areaPatch, isBugArea, suggestArea } from "@/lib/bug-area";
+import type { AreaDevelopers, BugArea } from "@/lib/bug-area";
+import type { BugCategory } from "@/lib/types/models";
 
 type AttachmentRow = {
   id: string;
@@ -34,6 +39,8 @@ export default function BugDrawer({
   assignable,
   releases = [],
   siblingProject,
+  categories = [],
+  projectDevelopers,
   onClose,
   onChanged,
 }: {
@@ -44,6 +51,10 @@ export default function BugDrawer({
   /** The project's app versions; the bug's version can be changed among them. */
   releases?: ReleaseOption[];
   siblingProject: { id: string; name: string; platform: string } | null;
+  /** For the frontend/backend suggestion (migration 0041). */
+  categories?: BugCategory[];
+  /** The project's developers by area: changing the area can move the bug to that area's developer. */
+  projectDevelopers?: AreaDevelopers;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -226,6 +237,20 @@ export default function BugDrawer({
     else onChanged();
   }
 
+  // Frontend / backend (migration 0041). An open bug that was auto-routed can follow to the new
+  // area's developer (areaPatch); one assigned by hand keeps its assignee.
+  const [moveToAreaDev, setMoveToAreaDev] = useState(true);
+  const areaSuggestion = isBugArea(bug.area)
+    ? null
+    : suggestArea(`${bug.title} ${bug.description ?? ""} ${bug.steps_to_reproduce ?? ""}`, categories, bug.category_id);
+  async function setArea(area: BugArea | null) {
+    setErr(null);
+    const patch = projectDevelopers ? areaPatch(bug, area, projectDevelopers, moveToAreaDev) : { area };
+    const { error } = await createClient().from("bugs").update(patch).eq("id", bug.id);
+    if (error) setErr(error.message);
+    else onChanged();
+  }
+
   async function setAssignee(assignee_id: string | null) {
     setErr(null);
     const supabase = createClient();
@@ -254,6 +279,7 @@ export default function BugDrawer({
       steps_to_reproduce: bug.steps_to_reproduce,
       severity: bug.severity,
       priority: bug.priority,
+      area: bug.area,
       category_id: bug.category_id,
       copied_from_bug_id: bug.id,
     });
@@ -368,6 +394,7 @@ export default function BugDrawer({
               >
                 {SEVERITY_LABELS[bug.severity]}
               </Badge>
+              <AreaChip area={bug.area} showMissing />
               <Badge tone="blue">{titleCase(bug.status)}</Badge>
             </div>
             <h2 className="mt-2 text-lg font-semibold text-slate-900">
@@ -398,6 +425,48 @@ export default function BugDrawer({
         </div>
 
         <div className="space-y-5 p-4 sm:p-5">
+          {editable && (
+            <section className="space-y-1.5 text-xs text-slate-600">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">Area:</span>
+                <select
+                  value={bug.area ?? ""}
+                  onChange={(e) => setArea((e.target.value || null) as BugArea | null)}
+                  className="rounded-md border border-slate-300 px-2 py-1 text-[13px]"
+                >
+                  <option value="">Not set</option>
+                  {AREAS.map((a) => (
+                    <option key={a} value={a}>
+                      {AREA_LABELS[a]}
+                    </option>
+                  ))}
+                </select>
+                {areaSuggestion && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="text-slate-500">
+                      suggested {AREA_LABELS[areaSuggestion.area]}
+                      {areaSuggestion.matched.length ? ` (${areaSuggestion.matched.join(", ")})` : ""}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setArea(areaSuggestion.area)}
+                      className="rounded bg-brand px-2 py-0.5 font-medium text-white hover:bg-brand-fg"
+                    >
+                      Use it
+                    </button>
+                  </span>
+                )}
+              </div>
+              {projectDevelopers &&
+                bug.status !== "closed" &&
+                AREAS.some((a) => a !== bug.area && areaPatch(bug, a, projectDevelopers).assignee_id) && (
+                  <label className="flex items-center gap-1.5 text-slate-500">
+                    <input type="checkbox" checked={moveToAreaDev} onChange={(e) => setMoveToAreaDev(e.target.checked)} />
+                    When the area changes, move this bug to that area&apos;s developer
+                  </label>
+                )}
+            </section>
+          )}
           <section className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
             <span className="font-medium">App version:</span>
             {editable ? (
@@ -519,12 +588,7 @@ export default function BugDrawer({
                           {bug.assignee?.full_name ?? "Unknown"}
                         </option>
                       )}
-                    {assignable.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.full_name}
-                        {m.roles?.label ? ` · ${m.roles.label}` : ""}
-                      </option>
-                    ))}
+                    <AssigneeOptions people={assignable} area={bug.area} withRole />
                   </select>
                 ) : (
                   <p className="text-[13px] text-slate-700">

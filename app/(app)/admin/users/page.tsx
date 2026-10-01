@@ -3,6 +3,7 @@ import { requireProfile } from "@/lib/auth";
 import { PageHeader, Card, Button, Badge, Input, Select, FormRow } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { DEV_RANKS, DEV_RANK_LABELS } from "@/lib/types/models";
+import { AREAS, SKILL_LABELS, skillsOf } from "@/lib/bug-area";
 import { updateUser, createUser, deleteUser, setUserPassword } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +14,7 @@ type ProfileRow = {
   email: string | null;
   role: string | null;
   dev_rank: string | null;
+  skills: string[] | null;
   created_at: string;
   roles: { label: string; level: string } | null;
 };
@@ -32,7 +34,7 @@ export default async function AdminUsersPage({
   const [{ data: users }, { data: roles }] = await Promise.all([
     supabase
       .from("profiles")
-      .select("id, full_name, email, role, dev_rank, created_at, roles(label, level)")
+      .select("id, full_name, email, role, dev_rank, skills, created_at, roles(label, level)")
       .order("created_at"),
     supabase.from("roles").select("key, label, level").order("sort_order"),
   ]);
@@ -44,7 +46,7 @@ export default async function AdminUsersPage({
     <div>
       <PageHeader
         title="Users"
-        subtitle="Add teammates, set their role, developer rank or password, or remove access. A lead developer can hand bugs and tasks assigned to them to a junior developer. Generated passwords are shown here once and never stored."
+        subtitle="Add teammates, set their role, developer rank, skills or password, or remove access. A lead developer can hand bugs and tasks assigned to them to a junior developer. Skills (any combination) decide who is offered for frontend, backend, database and DevOps bugs. Generated passwords are shown here once and never stored."
       />
 
       {created && pw ? (
@@ -143,7 +145,7 @@ export default async function AdminUsersPage({
             <tr>
               <th className="min-w-[10rem]">Name</th>
               <th className="min-w-[12rem]">Email</th>
-              <th className="min-w-[16rem]">Role</th>
+              <th className="min-w-[26rem]">Role, rank and skills</th>
               <th className="min-w-[14rem]">Password</th>
               <th className="min-w-[8rem]">Joined</th>
               <th className="w-16" />
@@ -215,6 +217,15 @@ function RoleForm({ u, roleOpts }: { u: ProfileRow; roleOpts: RoleOpt[] }) {
           </option>
         ))}
       </Select>
+      {/* Skills: any combination; who is offered for an area's bugs (migration 0042). */}
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1" role="group" aria-label="Skills">
+        {AREAS.map((a) => (
+          <label key={a} className="inline-flex items-center gap-1 text-xs text-slate-600">
+            <input type="checkbox" name="skills" value={a} defaultChecked={skillsOf(u.skills).includes(a)} />
+            {SKILL_LABELS[a]}
+          </label>
+        ))}
+      </span>
       <Button type="submit" variant="secondary">
         Save
       </Button>

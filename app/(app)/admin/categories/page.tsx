@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader, Card, Button, Input, Select, Textarea } from "@/components/ui";
 import { SEVERITY_LABELS } from "@/lib/severity";
 import { SEVERITIES } from "@/lib/types/models";
+import { AREAS, AREA_LABELS } from "@/lib/bug-area";
 import { saveCategory } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +18,7 @@ export default async function AdminCategoriesPage() {
     <div>
       <PageHeader
         title="Bug categories"
-        subtitle="Templates: default severity + pre-filled steps. Keyword hints drive the auto-severity suggestion."
+        subtitle="Templates: default severity + pre-filled steps. Keyword hints drive the severity suggestion, and with 'Usually' the frontend/backend suggestion."
       />
 
       <Card className="mb-6 p-4">
@@ -32,6 +33,7 @@ export default async function AdminCategoriesPage() {
               id={c.id}
               name={c.name}
               defaultSeverity={c.default_severity ?? "minor"}
+              defaultArea={c.default_area ?? ""}
               templateSteps={c.template_steps ?? ""}
               keywordHints={(c.keyword_hints ?? []).join(", ")}
             />
@@ -46,12 +48,14 @@ function CategoryForm({
   id,
   name = "",
   defaultSeverity = "minor",
+  defaultArea = "",
   templateSteps = "",
   keywordHints = "",
 }: {
   id?: string;
   name?: string;
   defaultSeverity?: string;
+  defaultArea?: string;
   templateSteps?: string;
   keywordHints?: string;
 }) {
@@ -74,6 +78,14 @@ function CategoryForm({
           {SEVERITIES.map((s) => (
             <option key={s} value={s}>
               {SEVERITY_LABELS[s]}
+            </option>
+          ))}
+        </Select>
+        <Select name="default_area" defaultValue={defaultArea} className="w-52" title="The area bugs of this category usually belong to">
+          <option value="">Usually: either</option>
+          {AREAS.map((a) => (
+            <option key={a} value={a}>
+              Usually: {AREA_LABELS[a]}
             </option>
           ))}
         </Select>

@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { suggestArea } from "@/lib/bug-area";
 import { Card, Badge, cx } from "@/components/ui";
 import { SEVERITY_LABELS } from "@/lib/severity";
 import { fmtDateTime, titleCase } from "@/lib/format";
@@ -148,6 +149,8 @@ export default function RequirementDocsPanel({
       description: r.description,
       steps_to_reproduce: r.steps_to_reproduce,
       severity: r.severity,
+      // a requirement isn't a bug yet: suggest frontend/backend from its text (QA can change it)
+      area: r.area ?? suggestArea(`${r.title} ${r.description ?? ""}`)?.area ?? null,
       category_id: r.category_id,
       base_page_id: r.id,
       created_by: userId,

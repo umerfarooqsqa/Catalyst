@@ -35,7 +35,7 @@ export default async function BugsPage({
         .order("title"),
       supabase
         .from("projects")
-        .select("house_group, platform, current_version, assigned_developer_id")
+        .select("house_group, platform, current_version, assigned_developer_id, frontend_developer_id, backend_developer_id, database_developer_id, devops_developer_id")
         .eq("id", projectId)
         .maybeSingle(),
     ]);
@@ -78,7 +78,13 @@ export default async function BugsPage({
       userId={userId}
       siblingProject={siblingProject}
       projectPlatform={projectRow?.platform ?? null}
-      projectDeveloperId={projectRow?.assigned_developer_id ?? null}
+      projectDevelopers={{
+        none: projectRow?.assigned_developer_id ?? null,
+        frontend: projectRow?.frontend_developer_id ?? null,
+        backend: projectRow?.backend_developer_id ?? null,
+        database: projectRow?.database_developer_id ?? null,
+        devops: projectRow?.devops_developer_id ?? null,
+      }}
     />
   );
 }

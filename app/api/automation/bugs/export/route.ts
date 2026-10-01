@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/admin";
 import { badPlatform, checkAutomationSecret, parsePlatform, resolveProject, resolveRelease } from "@/lib/automation-release";
 import type { Database } from "@/lib/types/database";
+import { AREAS, areaFromTestKey, isBugArea } from "@/lib/bug-area";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,10 +19,12 @@ const IMAGE_TYPES = new Set(["image/png", "image/jpeg"]);
  * It works like the Bug Library's "Copy to project…", except that the bug comes
  * from automation and can carry its screenshot.
  *
- * GET  ?house=&platform=: the house's project, its versions (newest first) and
- *      the severities, for the export form.
- * POST {house, platform, version?, title, description?, steps?, severity, key?,
+ * GET  ?house=&platform=: the house's project, its versions (newest first), the
+ *      severities and the areas, for the export form.
+ * POST {house, platform, version?, title, description?, steps?, severity, area?, key?,
  *       force?, screenshot_b64?, screenshot_type?, screenshot_name?}
+ *      - area: frontend | backend (migration 0041). Without it, it is derived from
+ *        the test path in `key` when it can be; otherwise left for QA to set.
  *      - Creates the bug (source 'automation', open) under that version's release.
  *        With no version given, the project's current version is used.
  *      - With `key` (the test node id, or finding:<run>:<n>), a bug already
@@ -58,6 +61,7 @@ export async function GET(req: Request) {
     project: { id: project.id, name: project.name, current_version: project.current_version },
     versions,
     severities: SEVERITIES,
+    areas: AREAS,
   });
 }
 
@@ -73,6 +77,10 @@ export async function POST(req: Request) {
   const severity = String(body?.severity ?? "minor") as Severity;
   if (!SEVERITIES.includes(severity)) {
     return NextResponse.json({ error: `severity must be one of: ${SEVERITIES.join(", ")}` }, { status: 400 });
+  }
+
+  if (body?.area && !isBugArea(body.area)) {
+    return NextResponse.json({ error: `area must be one of: ${AREAS.join(", ")}` }, { status: 400 });
   }
 
   const found = await resolveProject(house, platform);
@@ -118,6 +126,7 @@ export async function POST(req: Request) {
       description: String(body?.description ?? "").slice(0, 8000) || null,
       steps_to_reproduce: String(body?.steps ?? "").slice(0, 8000) || null,
       severity,
+      area: isBugArea(body?.area) ? body.area : areaFromTestKey(body?.key ? String(body.key) : null),
       source: "automation",
       // A forced re-export must not collide with the first bug's key.
       automation_key: key && body?.force ? `${key}#${Date.now()}` : key,
