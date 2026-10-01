@@ -1,138 +1,306 @@
 import Link from "next/link";
+import VersionChip from "@/components/VersionChip";
+import type { ReactNode } from "react";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { PageHeader, Card, Badge, EmptyState, cx } from "@/components/ui";
+import { PageHeader, Badge, EmptyState, cx } from "@/components/ui";
 import { SEVERITY_LABELS } from "@/lib/severity";
-import { fmtDateTime, titleCase } from "@/lib/format";
+import { fmtDate, titleCase } from "@/lib/format";
+import { BugQueueActions, TaskQueueActions, DelegateSelect } from "@/components/QueueActions";
+import type { JuniorOption } from "@/components/QueueActions";
+import { isLeadDeveloper } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
-export default async function MyQueuePage() {
-  const { userId } = await requireProfile();
-  const supabase = await createClient();
+type Tone = "slate" | "blue" | "green" | "amber" | "red" | "violet";
 
-  const [{ data: bugs }, { data: tasks }] = await Promise.all([
-    supabase
-      .from("bugs")
-      .select("id, title, severity, priority, status, due_date, project_id, projects(name)")
-      .eq("assignee_id", userId)
-      .not("status", "in", "(closed)")
-      .order("due_date", { ascending: true, nullsFirst: false }),
-    supabase
-      .from("tasks")
-      .select("id, title, status, priority, due_date, project_id, projects(name)")
-      .eq("assignee_id", userId)
-      .neq("status", "done")
-      .order("due_date", { ascending: true, nullsFirst: false }),
-  ]);
+const STATUS_TONE: Record<string, Tone> = {
+  open: "blue",
+  reopened: "red",
+  in_progress: "amber",
+  fixed: "green",
+  ready_for_retest: "violet",
+  todo: "blue",
+  blocked: "red",
+  pending_approval: "violet",
+};
+const SEVERITY_TONE: Record<string, Tone> = { critical: "red", major: "amber" };
+const PRIORITY_TONE: Record<string, Tone> = { high: "red", medium: "slate", low: "slate" };
+
+function DueChip({ due }: { due: string | null }) {
+  if (!due) return <span className="text-[11px] text-slate-400">No due date</span>;
+  const late = Date.parse(due) < Date.now();
+  return (
+    <span
+      className={cx(
+        "whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium",
+        late ? "bg-red-50 text-red-700" : "bg-slate-100 text-slate-600",
+      )}
+      suppressHydrationWarning
+    >
+      {late ? "Overdue · " : "Due "}
+      {fmtDate(due)}
+    </span>
+  );
+}
+
+/** One item of the queue as a card: badges and due date, title, project, then the actions. */
+function QueueCard({
+  badges,
+  due,
+  href,
+  title,
+  project,
+  actions,
+}: {
+  badges: ReactNode;
+  due: string | null;
+  href: string;
+  title: string;
+  project?: string | null;
+  actions: ReactNode;
+}) {
+  return (
+    <li className="flex flex-col rounded-md border border-grid-line bg-white p-3 shadow-card">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {badges}
+        <span className="ml-auto">
+          <DueChip due={due} />
+        </span>
+      </div>
+      <Link href={href} className="mt-2 line-clamp-3 font-medium leading-snug text-slate-800 hover:text-brand-fg">
+        {title}
+      </Link>
+      {project ? <p className="mt-1 truncate text-xs text-slate-500">{project}</p> : null}
+      {/* pushes the actions to the bottom, so cards in one grid row line up */}
+      <div className="flex-1" />
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-grid-line pt-2.5">
+        {actions}
+        <Link href={href} className="ml-auto text-xs font-medium text-brand-fg hover:underline">
+          Open ↗
+        </Link>
+      </div>
+    </li>
+  );
+}
+
+const BUG_FIELDS =
+  "id, title, severity, priority, status, due_date, project_id, assignee_id, projects(name, platform), version_confirmed_at, release:releases(version), delegator:profiles!bugs_delegated_by_fkey(full_name), assignee:profiles!bugs_assignee_id_fkey(full_name)";
+const TASK_FIELDS =
+  "id, title, status, priority, due_date, project_id, assignee_id, projects(name, platform), delegator:profiles!tasks_delegated_by_fkey(full_name), assignee:profiles!tasks_assignee_id_fkey(full_name)";
+
+export default async function MyQueuePage() {
+  const { userId, level, profile } = await requireProfile();
+  const supabase = await createClient();
+  // A lead developer hands their own bugs and tasks to junior developers (migration 0040).
+  const lead = isLeadDeveloper(level, profile.dev_rank);
+
+  const [{ data: bugs }, { data: tasks }, { data: handedBugs }, { data: handedTasks }, { data: juniorRows }] =
+    await Promise.all([
+      supabase
+        .from("bugs")
+        .select(BUG_FIELDS)
+        .eq("assignee_id", userId)
+        .not("status", "in", "(closed)")
+        .order("due_date", { ascending: true, nullsFirst: false }),
+      supabase
+        .from("tasks")
+        .select(TASK_FIELDS)
+        .eq("assignee_id", userId)
+        .neq("status", "done")
+        .order("due_date", { ascending: true, nullsFirst: false }),
+      lead
+        ? supabase
+            .from("bugs")
+            .select(BUG_FIELDS)
+            .eq("delegated_by", userId)
+            .not("status", "in", "(closed)")
+            .order("due_date", { ascending: true, nullsFirst: false })
+        : Promise.resolve({ data: null }),
+      lead
+        ? supabase
+            .from("tasks")
+            .select(TASK_FIELDS)
+            .eq("delegated_by", userId)
+            .neq("status", "done")
+            .order("due_date", { ascending: true, nullsFirst: false })
+        : Promise.resolve({ data: null }),
+      lead
+        ? supabase
+            .from("profiles")
+            .select("id, full_name, roles(level, platform)")
+            .eq("dev_rank", "junior")
+            .order("full_name")
+        : Promise.resolve({ data: null }),
+    ]);
+
+  // Juniors who can see a project: the same platform rule as the database's can_see_project.
+  const juniors = ((juniorRows ?? []) as unknown as {
+    id: string;
+    full_name: string;
+    roles: { level: string; platform: string | null } | null;
+  }[]).filter((j) => j.roles?.level === "contributor");
+  const juniorsFor = (platform: string | null | undefined): JuniorOption[] =>
+    juniors
+      .filter((j) => !j.roles?.platform || j.roles.platform === platform)
+      .map((j) => ({ id: j.id, full_name: j.full_name }));
+  const handedOnCount = (handedBugs?.length ?? 0) + (handedTasks?.length ?? 0);
 
   return (
     <div>
       <PageHeader
         title="My Queue"
-        subtitle="Everything assigned to you across projects, most urgent first."
+        subtitle={
+          lead
+            ? "Everything assigned to you across projects, most urgent first. Hand bugs and tasks to a junior developer, and follow what you handed on below."
+            : "Everything assigned to you across projects, most urgent first. Mark bugs fixed and tasks done right here."
+        }
       />
 
-      <h2 className="mb-2 text-sm font-semibold text-slate-700">
-        Bugs ({bugs?.length ?? 0})
-      </h2>
+      <h2 className="mb-2 text-sm font-semibold text-slate-700">Bugs ({bugs?.length ?? 0})</h2>
       {bugs && bugs.length > 0 ? (
-        <div className="sheet-wrap mb-8 rounded-sm border border-grid-line">
-          <table className="sheet">
-            <thead>
-              <tr>
-                <th className="rownum">#</th>
-                <th className="freeze min-w-[14rem]">Bug</th>
-                <th>Project</th>
-                <th>Severity</th>
-                <th>Status</th>
-                <th>Due</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bugs.map((b, i) => {
-                const late = b.due_date && Date.parse(b.due_date) < Date.now();
-                return (
-                  <tr key={b.id}>
-                    <td className="rownum">{i + 1}</td>
-                    <td className="freeze">
-                      <Link
-                        href={`/projects/${b.project_id}/bugs?focus=${b.id}`}
-                        className="font-medium text-slate-800 hover:text-brand-fg"
-                      >
-                        {b.title}
-                      </Link>
-                    </td>
-                    <td className="text-slate-500">{b.projects?.name}</td>
-                    <td>
-                      <Badge
-                        tone={
-                          b.severity === "critical"
-                            ? "red"
-                            : b.severity === "major"
-                              ? "amber"
-                              : "slate"
-                        }
-                      >
-                        {SEVERITY_LABELS[b.severity]}
-                      </Badge>
-                    </td>
-                    <td className="text-slate-600">{titleCase(b.status)}</td>
-                    <td
-                      className={cx(
-                        "whitespace-nowrap text-xs",
-                        late ? "font-semibold text-red-700" : "text-slate-500",
-                      )}
-                    >
-                      {b.due_date ? fmtDateTime(b.due_date) : "—"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <ul className="mb-8 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+          {bugs.map((b) => (
+            <QueueCard
+              key={b.id}
+              href={`/projects/${b.project_id}/bugs?focus=${b.id}`}
+              title={b.title}
+              project={b.projects?.name}
+              due={b.due_date}
+              badges={
+                <>
+                  <Badge tone={SEVERITY_TONE[b.severity] ?? "slate"}>{SEVERITY_LABELS[b.severity]}</Badge>
+                  <Badge tone={STATUS_TONE[b.status] ?? "slate"}>{titleCase(b.status)}</Badge>
+                  <VersionChip version={b.release?.version} confirmedAt={b.version_confirmed_at} showMissing />
+                  {b.delegator ? <Badge tone="slate">from {b.delegator.full_name}</Badge> : null}
+                </>
+              }
+              actions={
+                <>
+                  <BugQueueActions bugId={b.id} status={b.status} />
+                  {lead ? (
+                    <DelegateSelect
+                      table="bugs"
+                      id={b.id}
+                      juniors={juniorsFor(b.projects?.platform)}
+                      selfId={userId}
+                      assigneeId={b.assignee_id}
+                    />
+                  ) : null}
+                </>
+              }
+            />
+          ))}
+        </ul>
       ) : (
         <div className="mb-8">
           <EmptyState title="No bugs assigned to you" />
         </div>
       )}
 
-      <h2 className="mb-2 text-sm font-semibold text-slate-700">
-        Tasks ({tasks?.length ?? 0})
-      </h2>
+      <h2 className="mb-2 text-sm font-semibold text-slate-700">Tasks ({tasks?.length ?? 0})</h2>
       {tasks && tasks.length > 0 ? (
-        <Card className="divide-y divide-slate-100">
-          {tasks.map((t) => {
-            const overdue =
-              t.due_date && Date.parse(t.due_date) < Date.now();
-            return (
-              <Link
-                key={t.id}
-                href={`/projects/${t.project_id}/tasks?focus=${t.id}`}
-                className="flex items-center justify-between gap-3 px-3 py-2 text-sm hover:bg-slate-50"
-              >
-                <div>
-                  <p className="font-medium text-slate-800">{t.title}</p>
-                  <p className="text-xs text-slate-500">
-                    {t.projects?.name} · {titleCase(t.status)}
-                  </p>
-                </div>
-                <span
-                  className={cx(
-                    "shrink-0 text-xs",
-                    overdue ? "font-semibold text-red-700" : "text-slate-500",
-                  )}
-                >
-                  {t.due_date ? `Due ${fmtDateTime(t.due_date)}` : "No due date"}
-                </span>
-              </Link>
-            );
-          })}
-        </Card>
+        <ul className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+          {tasks.map((t) => (
+            <QueueCard
+              key={t.id}
+              href={`/projects/${t.project_id}/tasks?focus=${t.id}`}
+              title={t.title}
+              project={t.projects?.name}
+              due={t.due_date}
+              badges={
+                <>
+                  <Badge tone={STATUS_TONE[t.status] ?? "slate"}>{titleCase(t.status)}</Badge>
+                  {t.priority ? (
+                    <Badge tone={PRIORITY_TONE[t.priority] ?? "slate"}>{titleCase(t.priority)} priority</Badge>
+                  ) : null}
+                  {t.delegator ? <Badge tone="slate">from {t.delegator.full_name}</Badge> : null}
+                </>
+              }
+              actions={
+                <>
+                  <TaskQueueActions taskId={t.id} status={t.status} role={level} />
+                  {lead ? (
+                    <DelegateSelect
+                      table="tasks"
+                      id={t.id}
+                      juniors={juniorsFor(t.projects?.platform)}
+                      selfId={userId}
+                      assigneeId={t.assignee_id}
+                    />
+                  ) : null}
+                </>
+              }
+            />
+          ))}
+        </ul>
       ) : (
         <EmptyState title="No tasks assigned to you" />
       )}
+
+      {lead ? (
+        <>
+          <h2 className="mb-2 mt-8 text-sm font-semibold text-slate-700">
+            Handed to junior developers ({handedOnCount})
+          </h2>
+          {handedOnCount > 0 ? (
+            <ul className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+              {(handedBugs ?? []).map((b) => (
+                <QueueCard
+                  key={b.id}
+                  href={`/projects/${b.project_id}/bugs?focus=${b.id}`}
+                  title={b.title}
+                  project={b.projects?.name}
+                  due={b.due_date}
+                  badges={
+                    <>
+                      <Badge tone="slate">Bug</Badge>
+                      <Badge tone={STATUS_TONE[b.status] ?? "slate"}>{titleCase(b.status)}</Badge>
+                      <Badge tone="violet">with {b.assignee?.full_name ?? "nobody"}</Badge>
+                    </>
+                  }
+                  actions={
+                    <DelegateSelect
+                      table="bugs"
+                      id={b.id}
+                      juniors={juniorsFor(b.projects?.platform)}
+                      selfId={userId}
+                      assigneeId={b.assignee_id}
+                    />
+                  }
+                />
+              ))}
+              {(handedTasks ?? []).map((t) => (
+                <QueueCard
+                  key={t.id}
+                  href={`/projects/${t.project_id}/tasks?focus=${t.id}`}
+                  title={t.title}
+                  project={t.projects?.name}
+                  due={t.due_date}
+                  badges={
+                    <>
+                      <Badge tone="slate">Task</Badge>
+                      <Badge tone={STATUS_TONE[t.status] ?? "slate"}>{titleCase(t.status)}</Badge>
+                      <Badge tone="violet">with {t.assignee?.full_name ?? "nobody"}</Badge>
+                    </>
+                  }
+                  actions={
+                    <DelegateSelect
+                      table="tasks"
+                      id={t.id}
+                      juniors={juniorsFor(t.projects?.platform)}
+                      selfId={userId}
+                      assigneeId={t.assignee_id}
+                    />
+                  }
+                />
+              ))}
+            </ul>
+          ) : (
+            <EmptyState title="Nothing handed on" />
+          )}
+        </>
+      ) : null}
     </div>
   );
 }

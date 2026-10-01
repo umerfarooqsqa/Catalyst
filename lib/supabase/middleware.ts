@@ -2,7 +2,17 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/lib/types/database";
 
-const PUBLIC_PATHS = ["/login", "/auth", "/api/health"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/auth",
+  "/api/health",
+  "/api/push/dispatch", // Supabase webhook — authorized by its own shared secret
+  "/api/automation", // aktrade automation API — authorized by its own shared secret
+  "/manifest.webmanifest",
+  "/sw.js",
+  "/.well-known",
+  "/download", // the Android app page and its APK (/downloads/...): shared with people not signed in yet // Digital Asset Links for the Android app (android-app/): must never redirect to /login
+];
 
 /**
  * Refreshes the Supabase auth session on every request (persistent login)

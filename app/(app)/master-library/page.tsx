@@ -14,6 +14,7 @@ export default async function MasterLibraryPage() {
       .from("base_page")
       .select("*")
       .eq("source_type", "master_bug")
+      .eq("platform", "android") // default tab; the client switches lists
       .order("times_reused", { ascending: false })
       .limit(100),
     getCategories(),

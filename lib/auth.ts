@@ -56,11 +56,11 @@ export const getRoles = cache(async (): Promise<RoleRow[]> => {
 
 /** All projects (for sidebars / pickers / the project header). One fetch per request. */
 export const getProjects = cache(
-  async (): Promise<Pick<Project, "id" | "name" | "description">[]> => {
+  async (): Promise<Pick<Project, "id" | "name" | "description" | "platform">[]> => {
     const supabase = await createClient();
     const { data } = await supabase
       .from("projects")
-      .select("id, name, description")
+      .select("id, name, description, platform")
       .order("name");
     return data ?? [];
   },

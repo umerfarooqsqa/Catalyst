@@ -22,6 +22,7 @@ export default async function RequirementsPage({
     { data: docs },
     { data: extracted },
     categories,
+    { data: project },
   ] = await Promise.all([
     supabase
       .from("requirements")
@@ -46,7 +47,10 @@ export default async function RequirementsPage({
       .eq("project_id", projectId)
       .order("created_at", { ascending: false }),
     getCategories(),
+    supabase.from("projects").select("house_slug, house_group, platform").eq("id", projectId).maybeSingle(),
   ]);
+  // Same rule as the automation API's resolveProject: Android uses house_slug, iOS house_group.
+  const hasApp = Boolean(project?.house_slug || (project?.platform === "ios" && project?.house_group));
 
   const byReq = new Map<string, typeof bugs>();
   for (const b of bugs ?? []) {
@@ -77,6 +81,7 @@ export default async function RequirementsPage({
         categories={categories ?? []}
         role={level}
         userId={userId}
+        hasApp={hasApp}
       />
       <RequirementsView
         projectId={projectId}

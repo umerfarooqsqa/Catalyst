@@ -13,3 +13,7 @@ yarn-error.log*
 next-env.d.ts
 .vercel
 *.tsbuildinfo
+
+# Cloudflare/OpenNext build output (contains env values baked into the worker)
+.open-next/
+.wrangler/

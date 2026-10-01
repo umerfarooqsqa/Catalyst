@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+/* A grid item's default min-width is its content's width, so one long unbreakable line
+   (a truncated title) widens the whole column past a phone screen. Let items shrink. */
+@layer base {
+  .grid > * {
+    min-width: 0;
+  }
+}
+
 :root {
   color-scheme: light;
 }

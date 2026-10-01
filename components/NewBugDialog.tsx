@@ -3,10 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { attachBugContext, captureBugContext, pathAsSteps } from "@/lib/bug-context";
+import { usePhoneHelper } from "@/lib/phone-helper-available";
 import { Button, Badge, cx } from "@/components/ui";
 import DueInput from "@/components/DueInput";
 import { suggestSeverity, SEVERITY_LABELS } from "@/lib/severity";
 import type {
+  ReleaseOption,
   BasePageEntry,
   BugCategory,
   MemberOption,
@@ -19,6 +22,9 @@ type Props = {
   projectId: string;
   categories: BugCategory[];
   requirements: Pick<Requirement, "id" | "title">[];
+  /** App versions (releases) the bug can be filed under; defaults to `currentVersion`. */
+  releases?: ReleaseOption[];
+  currentVersion?: string | null;
   members: MemberOption[];
   userId: string;
   open: boolean;
@@ -31,12 +37,20 @@ export default function NewBugDialog({
   projectId,
   categories,
   requirements,
+  releases = [],
+  currentVersion = null,
   members,
+  userId,
   open,
   onClose,
   seed,
 }: Props) {
   const router = useRouter();
+  const defaultRelease = releases.find((r) => r.version === currentVersion)?.id ?? releases[0]?.id ?? "";
+  const [releaseId, setReleaseId] = useState(defaultRelease);
+  useEffect(() => {
+    if (open) setReleaseId(defaultRelease);
+  }, [open, defaultRelease]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [steps, setSteps] = useState("");
@@ -53,6 +67,13 @@ export default function NewBugDialog({
   const [error, setError] = useState<string | null>(null);
 
   const [dupes, setDupes] = useState<BasePageEntry[]>([]);
+  // Suggestions come from this project's platform list (plus unassigned
+  // entries, so nothing unclassified is hidden). null = project isn't split.
+  const [platform, setPlatform] = useState<string | null>(null);
+  // The project's app (house): with one, the bug's screen on the test phone can be attached + learned.
+  const [house, setHouse] = useState<string | null>(null);
+  const [withContext, setWithContext] = useState(true);
+  const phoneHelper = usePhoneHelper(); // only on the PC that runs the aktrade Control Center
   const titleRef = useRef<HTMLInputElement>(null);
 
   // seed from a library entry (reuse) — copies fields, keeps a
@@ -71,6 +92,19 @@ export default function NewBugDialog({
     setTimeout(() => titleRef.current?.focus(), 50);
   }, [open, seed]);
 
+  useEffect(() => {
+    if (!open) return;
+    createClient()
+      .from("projects")
+      .select("platform, house_slug, house_group")
+      .eq("id", projectId)
+      .maybeSingle()
+      .then(({ data }) => {
+        setPlatform(data?.platform ?? null);
+        setHouse(data?.house_slug ?? data?.house_group ?? null);
+      });
+  }, [open, projectId]);
+
   // Live duplicate suggestion against the master library (trigram indexed).
   useEffect(() => {
     if (!open) return;
@@ -85,6 +119,7 @@ export default function NewBugDialog({
         .from("base_page")
         .select("*")
         .eq("source_type", "master_bug")
+        .or(platform ? `platform.eq.${platform},platform.is.null` : "platform.not.is.null,platform.is.null")
         .ilike("title", `%${q}%`)
         .limit(5);
 
@@ -105,6 +140,7 @@ export default function NewBugDialog({
           .from("base_page")
           .select("*")
           .eq("source_type", "master_bug")
+          .or(platform ? `platform.eq.${platform},platform.is.null` : "platform.not.is.null,platform.is.null")
           .or(words.map((w) => `title.ilike.%${w}%`).join(","))
           .limit(8);
         byWord = data ?? [];
@@ -115,7 +151,7 @@ export default function NewBugDialog({
       setDupes(merged.slice(0, 5));
     }, 250);
     return () => clearTimeout(t);
-  }, [title, open]);
+  }, [title, open, platform]);
 
   // Auto-severity suggestion (keyword hints). Never forces — only fills
   // until the user changes it themselves.
@@ -173,7 +209,7 @@ export default function NewBugDialog({
     setBusy(true);
     setError(null);
     const supabase = createClient();
-    const { error } = await supabase.from("bugs").insert({
+    const { data: created, error } = await supabase.from("bugs").insert({
       project_id: projectId,
       title: title.trim(),
       description: description.trim() || null,
@@ -185,7 +221,8 @@ export default function NewBugDialog({
       assignee_id: assigneeId || null,
       due_date: dueIso,
       base_page_id: basePageId,
-    });
+      release_id: releaseId || null,
+    }).select("id").single();
 
     if (error) {
       setError(error.message);
@@ -203,6 +240,22 @@ export default function NewBugDialog({
           last_reused_at: new Date().toISOString(),
         })
         .eq("id", basePageId);
+    }
+
+    // Watch and learn: attach where the bug is on the test phone (screen + path) and let
+    // automation learn it (aktrade utils/bug_context.py). Never blocks saving the bug.
+    if (withContext && house && phoneHelper && created?.id) {
+      const ctx = await captureBugContext(house, created.id, title.trim());
+      if (ctx.ok) {
+        const attachErr = await attachBugContext(supabase, created.id, userId, ctx);
+        const path = pathAsSteps(ctx);
+        if (!steps.trim() && path) {
+          await supabase.from("bugs").update({ steps_to_reproduce: path }).eq("id", created.id);
+        }
+        if (attachErr) window.alert(`Bug saved; attaching the phone screen failed: ${attachErr}`);
+      } else {
+        window.alert(`Bug saved without the phone screen: ${ctx.error}`);
+      }
     }
 
     setBusy(false);
@@ -398,6 +451,30 @@ export default function NewBugDialog({
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
+                App version
+              </label>
+              <select
+                value={releaseId}
+                onChange={(e) => setReleaseId(e.target.value)}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              >
+                {releases.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    v{r.version}
+                    {r.version === currentVersion ? " (current)" : ""}
+                    {r.hasNotes ? "" : " (no release notes)"}
+                  </option>
+                ))}
+                <option value="">— unknown —</option>
+              </select>
+              {releases.length === 0 && (
+                <p className="mt-1 text-xs text-amber-700">
+                  No versions yet: add the release notes on the project&apos;s settings page to file bugs by version.
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
                 Violates requirement
               </label>
               <select
@@ -455,6 +532,21 @@ export default function NewBugDialog({
             </p>
           )}
 
+          {house && phoneHelper && (
+            <label className="flex items-start gap-2 text-xs text-slate-600">
+              <input
+                type="checkbox"
+                checked={withContext}
+                onChange={(e) => setWithContext(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                📍 Attach where this happens on the test phone (screen, screenshot and the path you took) and let
+                automation learn it. Needs the aktrade Control Center running on this PC with the app open on the phone.
+              </span>
+            </label>
+          )}
+
           <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
             <Button
               type="button"
@@ -467,7 +559,7 @@ export default function NewBugDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={busy || !title.trim()}>
-              {busy ? "Saving…" : "Create bug"}
+              {busy ? (withContext && house ? "Saving + capturing…" : "Saving…") : "Create bug"}
             </Button>
           </div>
         </form>

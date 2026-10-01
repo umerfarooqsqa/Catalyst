@@ -3,19 +3,37 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Button, cx, PageHeader, EmptyState } from "@/components/ui";
+import {
+  Button,
+  cx,
+  PageHeader,
+  EmptyState,
+  Badge,
+  ViewToggle,
+  Fab,
+} from "@/components/ui";
 import NewBugDialog from "@/components/NewBugDialog";
 import BugDrawer from "@/components/BugDrawer";
 import DueInput from "@/components/DueInput";
+import VersionChip from "@/components/VersionChip";
+import VersionsPanel from "@/components/VersionsPanel";
 import { SEVERITY_LABELS } from "@/lib/severity";
 import { fmtDateTime, titleCase } from "@/lib/format";
-import { exportRows } from "@/lib/export";
-import { canCreateBugs, canEditBug, isManager, isViewer } from "@/lib/permissions";
+import { fmtDueShort } from "@/lib/parseDue";
+import { exportRows, loadBugScreenshots } from "@/lib/export";
+import {
+  canCreateBugs,
+  canEditBug,
+  developerStatusTargets,
+  isManager,
+} from "@/lib/permissions";
 import { useGridNav } from "@/lib/useGridNav";
+import { useIsMobile } from "@/lib/useIsMobile";
 import type {
   BugWithJoins,
   BugCategory,
   MemberOption,
+  ReleaseOption,
   Requirement,
   RoleLevel,
   Severity,
@@ -28,9 +46,18 @@ type Props = {
   initialBugs: BugWithJoins[];
   categories: BugCategory[];
   requirements: Pick<Requirement, "id" | "title">[];
+  /** The project's app versions (releases) a bug can be filed under, newest first. */
+  releases: ReleaseOption[];
+  currentVersion: string | null;
   members: MemberOption[];
   role: RoleLevel;
   userId: string;
+  /** This house's Android/iOS sibling project, if platform-split. */
+  siblingProject: { id: string; name: string; platform: string } | null;
+  /** The project's platform: only people who can see it are offered as assignees. */
+  projectPlatform?: string | null;
+  /** The developer the whole project is assigned to (migration 0035). */
+  projectDeveloperId?: string | null;
 };
 
 type SortKey = "title" | "severity" | "priority" | "status" | "due_date";
@@ -48,24 +75,51 @@ export default function BugBoard({
   initialBugs,
   categories,
   requirements,
+  releases,
+  currentVersion,
   members,
   role,
   userId,
+  siblingProject,
+  projectPlatform = null,
+  projectDeveloperId = null,
 }: Props) {
   const router = useRouter();
   const params = useSearchParams();
+  const isMobile = useIsMobile();
   const [bugs, setBugs] = useState(initialBugs);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showNew, setShowNew] = useState(false);
+  const [view, setView] = useState<"cards" | "sheet">("sheet");
+  const [viewTouched, setViewTouched] = useState(false);
   const [drawerId, setDrawerId] = useState<string | null>(
     params.get("focus") || params.get("bug"),
   );
+  // A link to a bug (a notification -> /bugs/<id> -> ?focus=<id>) opens its drawer, also when this page is
+  // already open. Only a change of the value counts, so a refresh never reopens a drawer the user closed.
+  const focusParam = params.get("focus") || params.get("bug");
+  const lastFocus = useRef(focusParam);
+  useEffect(() => {
+    if (focusParam && focusParam !== lastFocus.current) setDrawerId(focusParam);
+    lastFocus.current = focusParam;
+  }, [focusParam]);
+  const closeDrawer = useCallback(() => {
+    setDrawerId(null);
+    if (params.get("focus") || params.get("bug")) {
+      // drop ?focus= so the next link to the same bug opens it again
+      const next = new URLSearchParams(params.toString());
+      next.delete("focus");
+      next.delete("bug");
+      router.replace(`${window.location.pathname}${next.size ? `?${next}` : ""}`, { scroll: false });
+    }
+  }, [params, router]);
   const [err, setErr] = useState<string | null>(null);
   const lastClickedRow = useRef<number | null>(null);
 
   const [q, setQ] = useState("");
   const [fSeverity, setFSeverity] = useState("");
   const [fStatus, setFStatus] = useState("");
+  const [fVersion, setFVersion] = useState(""); // "" = all, "none" = no version
   const [fAssignee, setFAssignee] = useState("");
   const [mineOnly, setMineOnly] = useState(false);
   const [hideClosed, setHideClosed] = useState(true);
@@ -75,18 +129,77 @@ export default function BugBoard({
   });
 
   useEffect(() => setBugs(initialBugs), [initialBugs]);
+  useEffect(() => {
+    if (!viewTouched) setView(isMobile ? "cards" : "sheet");
+  }, [isMobile, viewTouched]);
+  const pickView = (v: "cards" | "sheet") => {
+    setViewTouched(true);
+    setView(v);
+  };
   const refresh = useCallback(() => router.refresh(), [router]);
 
-  // full list resolves names; only assignable users appear in pickers
+  // full list resolves names; only assignable users who can see this project
+  // (their role's platform is none or this project's) appear in pickers
   const assignable = useMemo(
-    () => members.filter((m) => m.roles?.assignable !== false),
-    [members],
+    () =>
+      members.filter(
+        (m) =>
+          m.roles?.assignable !== false &&
+          (!m.roles?.platform || m.roles.platform === projectPlatform),
+      ),
+    [members, projectPlatform],
   );
+  const developers = useMemo(
+    () => assignable.filter((m) => m.roles?.level === "contributor"),
+    [assignable],
+  );
+  const [devBusy, setDevBusy] = useState(false);
+  const [devMsg, setDevMsg] = useState<string | null>(null);
+
+  // "Assign the whole project": the developer owns every open unassigned bug now and
+  // every new bug from here on (assign_project_developer, migration 0035).
+  async function assignProjectDeveloper(developerId: string | null) {
+    const name = developerId ? memberNameOf(developerId) : null;
+    if (
+      developerId &&
+      !confirm(`Assign this project to ${name}? Every open, unassigned bug goes to them now, and every new bug will too.`)
+    )
+      return;
+    setErr(null);
+    setDevMsg(null);
+    setDevBusy(true);
+    const { data, error } = await createClient().rpc("assign_project_developer", {
+      p_project: projectId,
+      p_developer: developerId,
+    });
+    setDevBusy(false);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    setDevMsg(
+      developerId
+        ? `Project assigned to ${name}: ${data ?? 0} open bug(s) assigned to them; new bugs will be too.`
+        : "The project no longer has a developer; new bugs stay unassigned.",
+    );
+    refresh();
+  }
+  function memberNameOf(id: string) {
+    return members.find((m) => m.id === id)?.full_name ?? "?";
+  }
   const memberName = useCallback(
     (id: string | null) =>
       id ? (members.find((m) => m.id === id)?.full_name ?? "?") : "—",
     [members],
   );
+
+  /** Status picker options: every status for QA/admin; for a developer only the
+   *  current one plus In progress / Fixed where allowed (migration 0034). */
+  function statusOptions(b: BugWithJoins): string[] {
+    if (canEditBug(role, userId, b)) return [...BUG_STATUSES];
+    const targets = developerStatusTargets(role, b.status);
+    return targets.length ? [b.status, ...targets] : [b.status];
+  }
 
   async function patch(id: string, patch: Record<string, unknown>) {
     setErr(null);
@@ -132,6 +245,14 @@ export default function BugBoard({
     refresh();
   }
 
+  async function deleteRow(id: string, title: string) {
+    if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
+    const supabase = createClient();
+    const { error } = await supabase.from("bugs").delete().eq("id", id);
+    if (error) setErr(error.message);
+    refresh();
+  }
+
   const filtered = useMemo(() => {
     let rows = bugs.slice();
     if (hideClosed) rows = rows.filter((b) => b.status !== "closed");
@@ -145,6 +266,7 @@ export default function BugBoard({
     }
     if (fSeverity) rows = rows.filter((b) => b.severity === fSeverity);
     if (fStatus) rows = rows.filter((b) => b.status === fStatus);
+    if (fVersion) rows = rows.filter((b) => (fVersion === "none" ? !b.release_id : b.release_id === fVersion));
     if (fAssignee)
       rows = rows.filter((b) =>
         fAssignee === "none" ? !b.assignee_id : b.assignee_id === fAssignee,
@@ -178,7 +300,7 @@ export default function BugBoard({
       return av < bv ? -sort.dir : av > bv ? sort.dir : 0;
     });
     return rows;
-  }, [bugs, q, fSeverity, fStatus, fAssignee, mineOnly, hideClosed, sort, userId]);
+  }, [bugs, q, fSeverity, fStatus, fVersion, fAssignee, mineOnly, hideClosed, sort, userId]);
 
   const grid = useGridNav(filtered.length, NAV_COLS);
 
@@ -191,10 +313,10 @@ export default function BugBoard({
       if (e.key === "n" && canCreateBugs(role)) {
         e.preventDefault();
         setShowNew(true);
-      } else if (e.key === "d" && selected.size > 0) {
+      } else if (e.key === "d" && selected.size > 0 && isManager(role)) {
         e.preventDefault();
         bulkPatch({ status: "closed" });
-      } else if (e.key === "a" && selected.size > 0) {
+      } else if (e.key === "a" && selected.size > 0 && isManager(role)) {
         e.preventDefault();
         const who = prompt(
           `Assign ${selected.size} bug(s) to (type a name):\n` +
@@ -232,12 +354,41 @@ export default function BugBoard({
     lastClickedRow.current = rowIndex;
   }
 
-  function doExport() {
-    exportRows(
+  // null = idle; otherwise the button's progress text.
+  const [exporting, setExporting] = useState<string | null>(null);
+
+  // Formatted sheet of the visible bugs, with each bug's screenshots embedded
+  // (preview on the Bugs sheet, full size on a "Screenshots" sheet).
+  async function doExport() {
+    setExporting("Preparing…");
+    try {
+      const { images, skipped } = await loadBugScreenshots(
+        createClient(),
+        filtered.map((b) => b.id),
+        (done, total) => total && setExporting(`Screenshots ${done}/${total}…`),
+      );
+      setExporting("Building sheet…");
+      await exportBugRows(images);
+      if (skipped) {
+        window.alert(`${skipped} image attachment(s) were not included (over the limit or could not be read).`);
+      }
+    } catch (e) {
+      window.alert(`Export failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setExporting(null);
+    }
+  }
+
+  function exportBugRows(images: Awaited<ReturnType<typeof loadBugScreenshots>>["images"]) {
+    return exportRows(
       filtered.map((b) => ({
         title: b.title,
         description: b.description,
         steps_to_reproduce: b.steps_to_reproduce,
+        app_version: b.release?.version ?? "",
+        version_confirmed: b.version_confirmed_at
+          ? `Yes${b.confirmer?.full_name ? ` (${b.confirmer.full_name})` : ""}, ${fmtDateTime(b.version_confirmed_at)}`
+          : b.release_id ? "Not yet" : "",
         severity: b.severity,
         priority: b.priority,
         status: b.status,
@@ -250,6 +401,8 @@ export default function BugBoard({
         { key: "title", header: "Title" },
         { key: "description", header: "Description" },
         { key: "steps_to_reproduce", header: "Steps to Reproduce" },
+        { key: "app_version", header: "App Version" },
+        { key: "version_confirmed", header: "Version Confirmed" },
         { key: "severity", header: "Severity" },
         { key: "priority", header: "Priority" },
         { key: "status", header: "Status" },
@@ -260,11 +413,11 @@ export default function BugBoard({
       ],
       `${projectName.replace(/\s+/g, "-")}-bugs`,
       "Bugs",
+      { images, imageLabelKey: "title" },
     );
   }
 
   const drawerBug = bugs.find((b) => b.id === drawerId) ?? null;
-  const readonly = isViewer(role);
   const allSelected =
     filtered.length > 0 && filtered.every((b) => selected.has(b.id));
 
@@ -286,9 +439,9 @@ export default function BugBoard({
         title="Bugs"
         subtitle={
           <>
-            {filtered.length} rows · click a cell then use arrow keys · Enter to
-            edit.{" "}
-            {!readonly && (
+            {filtered.length} rows
+            <span className="hidden sm:inline"> · click a cell then use arrow keys · Enter to edit.</span>{" "}
+            {isManager(role) && (
               <span className="hidden sm:inline">
                 <span className="kbd">n</span> new{" "}
                 <span className="kbd">a</span> assign{" "}
@@ -299,14 +452,59 @@ export default function BugBoard({
         }
         actions={
           <>
-            <Button variant="secondary" onClick={doExport}>
-              Export .xlsx
+            <Button variant="secondary" onClick={doExport} disabled={exporting !== null}>
+              {exporting ?? "Export .xlsx"}
             </Button>
             {canCreateBugs(role) && (
-              <Button onClick={() => setShowNew(true)}>+ New bug</Button>
+              <Button
+                onClick={() => setShowNew(true)}
+                className="hidden sm:inline-flex"
+              >
+                + New bug
+              </Button>
             )}
           </>
         }
+      />
+
+      <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-grid-line bg-grid-head/40 px-2 py-1.5 text-[13px]">
+        <span className="font-medium text-slate-600">Project developer:</span>
+        {isManager(role) ? (
+          <select
+            value={projectDeveloperId ?? ""}
+            disabled={devBusy}
+            onChange={(e) => assignProjectDeveloper(e.target.value || null)}
+            className="rounded-md border border-slate-300 bg-white px-2 py-0.5"
+          >
+            <option value="">— none —</option>
+            {projectDeveloperId && !developers.some((m) => m.id === projectDeveloperId) && (
+              <option value={projectDeveloperId}>{memberNameOf(projectDeveloperId)}</option>
+            )}
+            {developers.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.full_name}
+                {m.roles?.label ? ` · ${m.roles.label}` : ""}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="text-slate-800">{projectDeveloperId ? memberNameOf(projectDeveloperId) : "none"}</span>
+        )}
+        <span className="text-xs text-slate-400">
+          {projectDeveloperId ? "new bugs are assigned to them automatically" : "assign the whole project to one developer"}
+        </span>
+        {devMsg && <span className="text-xs text-green-700">{devMsg}</span>}
+      </div>
+
+      <VersionsPanel
+        projectId={projectId}
+        bugs={bugs}
+        releases={releases}
+        currentVersion={currentVersion}
+        role={role}
+        activeFilter={fVersion}
+        onFilter={setFVersion}
+        onChanged={refresh}
       />
 
       <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[13px]">
@@ -314,12 +512,12 @@ export default function BugBoard({
           placeholder="Filter…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          className="w-40 rounded-sm border border-slate-300 px-2 py-1 sm:w-56"
+          className="w-40 rounded-md border border-slate-300 px-2 py-1 sm:w-56"
         />
         <select
           value={fSeverity}
           onChange={(e) => setFSeverity(e.target.value)}
-          className="rounded-sm border border-slate-300 px-1.5 py-1"
+          className="rounded-md border border-slate-300 px-1.5 py-1"
         >
           <option value="">Severity: all</option>
           {SEVERITIES.map((s) => (
@@ -331,7 +529,7 @@ export default function BugBoard({
         <select
           value={fStatus}
           onChange={(e) => setFStatus(e.target.value)}
-          className="rounded-sm border border-slate-300 px-1.5 py-1"
+          className="rounded-md border border-slate-300 px-1.5 py-1"
         >
           <option value="">Status: all</option>
           {BUG_STATUSES.map((s) => (
@@ -341,9 +539,24 @@ export default function BugBoard({
           ))}
         </select>
         <select
+          value={fVersion}
+          onChange={(e) => setFVersion(e.target.value)}
+          className="rounded-md border border-slate-300 px-1.5 py-1"
+          title="App version the bug was found in"
+        >
+          <option value="">Version: all</option>
+          {releases.map((r) => (
+            <option key={r.id} value={r.id}>
+              v{r.version}
+              {r.version === currentVersion ? " (current)" : ""}
+            </option>
+          ))}
+          <option value="none">No version</option>
+        </select>
+        <select
           value={fAssignee}
           onChange={(e) => setFAssignee(e.target.value)}
-          className="rounded-sm border border-slate-300 px-1.5 py-1"
+          className="rounded-md border border-slate-300 px-1.5 py-1"
         >
           <option value="">Assignee: any</option>
           <option value="none">Unassigned</option>
@@ -369,17 +582,18 @@ export default function BugBoard({
           />
           Hide closed
         </label>
+        <ViewToggle view={view} onChange={pickView} className="ml-auto" />
       </div>
 
-      {selected.size > 0 && !readonly && (
-        <div className="mb-2 flex flex-wrap items-center gap-2 rounded-sm border border-brand-line bg-brand-soft px-2 py-1.5 text-[13px]">
+      {selected.size > 0 && isManager(role) && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-brand-line bg-brand-soft px-2 py-1.5 text-[13px] shadow-card">
           <span className="font-medium">{selected.size} selected</span>
           <select
             onChange={(e) => {
               if (e.target.value) bulkPatch({ status: e.target.value });
               e.target.value = "";
             }}
-            className="rounded-sm border border-slate-300 px-1.5 py-0.5"
+            className="rounded-md border border-slate-300 px-1.5 py-0.5"
             defaultValue=""
           >
             <option value="">Set status…</option>
@@ -397,7 +611,7 @@ export default function BugBoard({
                 });
               e.target.value = "";
             }}
-            className="rounded-sm border border-slate-300 px-1.5 py-0.5"
+            className="rounded-md border border-slate-300 px-1.5 py-0.5"
             defaultValue=""
           >
             <option value="">Assign to…</option>
@@ -422,7 +636,7 @@ export default function BugBoard({
       )}
 
       {err && (
-        <p className="mb-2 rounded-sm border border-red-200 bg-red-50 px-2 py-1.5 text-[13px] text-red-700">
+        <p className="mb-2 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-[13px] text-red-700">
           {err}
         </p>
       )}
@@ -433,8 +647,120 @@ export default function BugBoard({
             ? "Log the first bug for this project."
             : "Adjust the filters above."}
         </EmptyState>
+      ) : view === "cards" ? (
+        <ul className="space-y-2">
+          {filtered.map((b) => {
+            const canEdit = canEditBug(role, userId, b);
+            const overdue =
+              !!b.due_date &&
+              Date.parse(b.due_date) < Date.now() &&
+              b.status !== "closed";
+            return (
+              <li
+                key={b.id}
+                onClick={() => setDrawerId(b.id)}
+                className="cursor-pointer rounded-md border border-grid-line bg-white p-3 shadow-card transition active:scale-[0.99]"
+              >
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Badge
+                    tone={
+                      b.severity === "critical"
+                        ? "red"
+                        : b.severity === "major"
+                          ? "amber"
+                          : "slate"
+                    }
+                  >
+                    {SEVERITY_LABELS[b.severity]}
+                  </Badge>
+                  <Badge tone="blue">{titleCase(b.status)}</Badge>
+                  <VersionChip
+                    version={b.release?.version}
+                    confirmedAt={b.version_confirmed_at}
+                    confirmedBy={b.confirmer?.full_name}
+                    showMissing
+                  />
+                  {b.base_page_id && (
+                    <span
+                      className="text-xs text-slate-400"
+                      title="Copied from library"
+                    >
+                      ⧉
+                    </span>
+                  )}
+                  <span className="ml-auto text-slate-300">↗</span>
+                </div>
+                <p className="mt-1.5 font-medium text-slate-800">{b.title}</p>
+                {b.steps_to_reproduce && (
+                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-[12px] text-slate-500">
+                    {b.steps_to_reproduce}
+                  </p>
+                )}
+                <div
+                  className="mt-2.5 flex flex-wrap items-center gap-2"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {statusOptions(b).length > 1 && (
+                    <select
+                      value={b.status}
+                      onChange={(e) => patch(b.id, { status: e.target.value })}
+                      className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-[13px] font-medium text-slate-700"
+                    >
+                      {statusOptions(b).map((s) => (
+                        <option key={s} value={s}>
+                          {titleCase(s)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {canEdit && (
+                    <select
+                      value={b.assignee_id ?? ""}
+                      onChange={(e) =>
+                        patch(b.id, { assignee_id: e.target.value || null })
+                      }
+                      className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-[12px]"
+                    >
+                      <option value="">Unassigned</option>
+                      {b.assignee_id &&
+                        !assignable.some((m) => m.id === b.assignee_id) && (
+                          <option value={b.assignee_id}>
+                            {memberName(b.assignee_id)}
+                          </option>
+                        )}
+                      {assignable.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.full_name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {b.due_date && (
+                    <span
+                      suppressHydrationWarning
+                      className={cx(
+                        "inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[12px] font-medium",
+                        overdue
+                          ? "bg-red-50 text-red-700"
+                          : "bg-grid-head text-slate-600",
+                      )}
+                    >
+                      📅 {fmtDueShort(b.due_date)}
+                      {overdue ? " · overdue" : ""}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 border-t border-slate-100 pt-2 text-[12px] text-slate-500">
+                  <span>Reporter: {memberName(b.created_by)}</span>
+                  <span>Assignee: {memberName(b.assignee_id)}</span>
+                  {b.category?.name && <span>{b.category.name}</span>}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       ) : (
-        <div className="sheet-wrap rounded-sm border border-grid-line">
+        <div className="sheet-wrap rounded-md border border-grid-line">
           <table
             className="sheet"
             onKeyDown={(e) => {
@@ -482,6 +808,7 @@ export default function BugBoard({
                 <th className="min-w-[8rem]">
                   <SortHead k="due_date">Due</SortHead>
                 </th>
+                {isManager(role) && <th className="min-w-[4rem]" />}
               </tr>
             </thead>
             <tbody>
@@ -508,11 +835,15 @@ export default function BugBoard({
                             ⧉
                           </span>
                         )}
+                        {!canEdit ? (
+                          <span className="cell-input truncate font-medium text-slate-800" title={b.title}>
+                            {b.title}
+                          </span>
+                        ) : (
                         <input
                           key={b.title}
                           tabIndex={-1}
                           defaultValue={b.title}
-                          disabled={!canEdit}
                           title={b.title}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
@@ -530,6 +861,12 @@ export default function BugBoard({
                           }}
                           className="cell-input min-w-0 flex-1 font-medium text-slate-800"
                         />
+                        )}
+                        <VersionChip
+                          version={b.release?.version}
+                          confirmedAt={b.version_confirmed_at}
+                          confirmedBy={b.confirmer?.full_name}
+                        />
                         <button
                           tabIndex={-1}
                           onClick={() => setDrawerId(b.id)}
@@ -543,10 +880,12 @@ export default function BugBoard({
                     </td>
 
                     <td {...grid.cellProps(r, 1)}>
+                      {!canEdit ? (
+                        <span className="cell-input">{SEVERITY_LABELS[b.severity]}</span>
+                      ) : (
                       <select
                         tabIndex={-1}
                         value={b.severity}
-                        disabled={!canEdit}
                         onChange={(e) => patch(b.id, { severity: e.target.value })}
                         className="cell-input"
                       >
@@ -556,13 +895,16 @@ export default function BugBoard({
                           </option>
                         ))}
                       </select>
+                      )}
                     </td>
 
                     <td {...grid.cellProps(r, 2)}>
+                      {!canEdit ? (
+                        <span className="cell-input">{titleCase(b.priority)}</span>
+                      ) : (
                       <select
                         tabIndex={-1}
                         value={b.priority}
-                        disabled={!canEdit}
                         onChange={(e) => patch(b.id, { priority: e.target.value })}
                         className="cell-input"
                       >
@@ -572,29 +914,35 @@ export default function BugBoard({
                           </option>
                         ))}
                       </select>
+                      )}
                     </td>
 
                     <td {...grid.cellProps(r, 3)}>
-                      <select
-                        tabIndex={-1}
-                        value={b.status}
-                        disabled={!canEdit}
-                        onChange={(e) => patch(b.id, { status: e.target.value })}
-                        className="cell-input"
-                      >
-                        {BUG_STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {titleCase(s)}
-                          </option>
-                        ))}
-                      </select>
+                      {statusOptions(b).length > 1 ? (
+                        <select
+                          tabIndex={-1}
+                          value={b.status}
+                          onChange={(e) => patch(b.id, { status: e.target.value })}
+                          className="cell-input"
+                        >
+                          {statusOptions(b).map((s) => (
+                            <option key={s} value={s}>
+                              {titleCase(s)}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="cell-input">{titleCase(b.status)}</span>
+                      )}
                     </td>
 
                     <td {...grid.cellProps(r, 4)}>
+                      {!canEdit ? (
+                        <span className="cell-input">{b.assignee_id ? memberName(b.assignee_id) : "—"}</span>
+                      ) : (
                       <select
                         tabIndex={-1}
                         value={b.assignee_id ?? ""}
-                        disabled={!canEdit}
                         onChange={(e) =>
                           patch(b.id, { assignee_id: e.target.value || null })
                         }
@@ -613,13 +961,16 @@ export default function BugBoard({
                           </option>
                         ))}
                       </select>
+                      )}
                     </td>
 
                     <td {...grid.cellProps(r, 5)}>
+                      {!canEdit ? (
+                        <span className="cell-input">{categories.find((c) => c.id === b.category_id)?.name ?? "—"}</span>
+                      ) : (
                       <select
                         tabIndex={-1}
                         value={b.category_id ?? ""}
-                        disabled={!canEdit}
                         onChange={(e) =>
                           patch(b.id, { category_id: e.target.value || null })
                         }
@@ -632,17 +983,34 @@ export default function BugBoard({
                           </option>
                         ))}
                       </select>
+                      )}
                     </td>
 
                     <td {...grid.cellProps(r, 6)}>
-                      <DueInput
-                        compact
-                        value={b.due_date}
-                        disabled={!canEdit}
-                        onError={setErr}
-                        onCommit={(iso) => patch(b.id, { due_date: iso })}
-                      />
+                      {!canEdit ? (
+                        <span className="cell-input">{fmtDueShort(b.due_date) || "—"}</span>
+                      ) : (
+                        <DueInput
+                          compact
+                          value={b.due_date}
+                          onError={setErr}
+                          onCommit={(iso) => patch(b.id, { due_date: iso })}
+                        />
+                      )}
                     </td>
+                    {isManager(role) && (
+                      <td className="text-center">
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          title={`Delete "${b.title}"`}
+                          onClick={() => deleteRow(b.id, b.title)}
+                          className="text-slate-400 hover:text-red-600"
+                        >
+                          🗑
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -655,6 +1023,8 @@ export default function BugBoard({
         projectId={projectId}
         categories={categories}
         requirements={requirements}
+        releases={releases}
+        currentVersion={currentVersion}
         members={assignable}
         userId={userId}
         open={showNew}
@@ -667,9 +1037,15 @@ export default function BugBoard({
           role={role}
           userId={userId}
           assignable={assignable}
-          onClose={() => setDrawerId(null)}
+          releases={releases}
+          siblingProject={siblingProject}
+          onClose={closeDrawer}
           onChanged={refresh}
         />
+      )}
+
+      {canCreateBugs(role) && (
+        <Fab label="Report a bug" onClick={() => setShowNew(true)} />
       )}
     </div>
   );

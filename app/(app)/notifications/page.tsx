@@ -2,11 +2,12 @@ import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader, EmptyState } from "@/components/ui";
 import NotificationList from "./notification-list";
+import PushToggle from "@/components/PushToggle";
 
 export const dynamic = "force-dynamic";
 
 export default async function NotificationsPage() {
-  await requireProfile();
+  const { userId } = await requireProfile();
   const supabase = await createClient();
   const { data } = await supabase
     .from("notifications")
@@ -17,6 +18,7 @@ export default async function NotificationsPage() {
   return (
     <div>
       <PageHeader title="Notifications" />
+      <PushToggle userId={userId} />
       {!data || data.length === 0 ? (
         <EmptyState title="No notifications">
           You&apos;ll be pinged on assignment, status changes, comments, and

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { createClient } from "@/lib/supabase/client";
 import { Button, Select, cx } from "@/components/ui";
@@ -30,6 +30,13 @@ const SEV_ALIAS: Record<string, Severity> = {
   trivial: "trivial",
   cosmetic: "trivial",
 };
+
+const normTitle = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[^\w ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
 function guess(headers: string[], ...needles: string[]) {
   const h = headers.findIndex((x) =>
@@ -62,6 +69,21 @@ export default function ImportBugsDialog({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [fileName, setFileName] = useState("");
+  const [existing, setExisting] = useState<{ id: string; title: string }[]>([]);
+  const [skipDupes, setSkipDupes] = useState(true);
+  // The Master Library is split by platform; an import goes into one list.
+  const [platform, setPlatform] = useState<"android" | "ios">("android");
+
+  // Pull every master-library title once so the preview can be scanned for
+  // rows that duplicate an entry already in the sheet.
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from("base_page")
+      .select("id,title")
+      .eq("source_type", "master_bug")
+      .then(({ data }) => setExisting(data ?? []));
+  }, []);
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -121,15 +143,54 @@ export default function ImportBugsDialog({
     });
   }, [rawRows, map, categories]);
 
-  const valid = preview.filter((p) => p.title);
+  // Pre-import duplicate scan of the mapped titles against the master sheet.
+  const dupeMatches = useMemo(() => {
+    if (existing.length === 0) return preview.map(() => [] as string[]);
+    const byNorm = new Map<string, string[]>();
+    for (const e of existing) {
+      const k = normTitle(e.title);
+      if (k) byNorm.set(k, [...(byNorm.get(k) ?? []), e.title]);
+    }
+    return preview.map((p) => {
+      if (!p.title) return [];
+      const k = normTitle(p.title);
+      const exact = byNorm.get(k);
+      if (exact) return exact;
+      // near-match: one title fully contains the other (both non-trivial)
+      const near = existing
+        .filter((e) => {
+          const ek = normTitle(e.title);
+          return (
+            ek.length >= 6 &&
+            k.length >= 6 &&
+            (ek.includes(k) || k.includes(ek))
+          );
+        })
+        .map((e) => e.title);
+      return [...new Set(near)];
+    });
+  }, [preview, existing]);
+
+  const rows = preview.map((p, i) => ({ ...p, matched: dupeMatches[i] ?? [] }));
+  const valid = rows.filter((p) => p.title);
+  const dupeCount = valid.filter((p) => p.matched.length > 0).length;
+  const toImport = valid.filter((p) => !(skipDupes && p.matched.length > 0));
 
   async function doImport() {
+    if (!skipDupes && dupeCount > 0) {
+      const ok = window.confirm(
+        `${dupeCount} row${dupeCount === 1 ? "" : "s"} match a title already in ` +
+          `the master library and will be imported as duplicate entries. Continue?`,
+      );
+      if (!ok) return;
+    }
     setBusy(true);
     setErr(null);
     const supabase = createClient();
     const { error } = await supabase.from("base_page").insert(
-      valid.map((p) => ({
+      toImport.map((p) => ({
         source_type: "master_bug" as const,
+        platform,
         title: p.title,
         description: p.description,
         steps_to_reproduce: p.steps_to_reproduce,
@@ -144,7 +205,7 @@ export default function ImportBugsDialog({
       setErr(error.message);
       return;
     }
-    onDone(valid.length);
+    onDone(toImport.length);
   }
 
   return (
@@ -169,6 +230,17 @@ export default function ImportBugsDialog({
         </div>
 
         <div className="space-y-4 p-4">
+          <label className="flex items-center gap-2 text-[13px] text-slate-600">
+            Import into
+            <select
+              value={platform}
+              onChange={(e) => setPlatform(e.target.value as "android" | "ios")}
+              className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+            >
+              <option value="android">Android list</option>
+              <option value="ios">iOS list</option>
+            </select>
+          </label>
           <div>
             <input
               type="file"
@@ -212,6 +284,24 @@ export default function ImportBugsDialog({
                 ))}
               </div>
 
+              {dupeCount > 0 && (
+                <div className="rounded-sm border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
+                  <p className="font-medium">
+                    ⚠ {dupeCount} of {valid.length} row
+                    {valid.length === 1 ? "" : "s"} match a title already in the
+                    master library.
+                  </p>
+                  <label className="mt-1 flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={skipDupes}
+                      onChange={(e) => setSkipDupes(e.target.checked)}
+                    />
+                    Skip matching rows (import {toImport.length} new)
+                  </label>
+                </div>
+              )}
+
               <div className="max-h-64 overflow-auto rounded-sm border border-grid-line">
                 <table className="sheet">
                   <thead>
@@ -223,18 +313,36 @@ export default function ImportBugsDialog({
                     </tr>
                   </thead>
                   <tbody>
-                    {preview.slice(0, 50).map((p, i) => (
-                      <tr key={i} className={cx(!p.title && "opacity-40")}>
-                        <td className="font-medium text-slate-800">
-                          {p.title || "(no title — skipped)"}
-                        </td>
-                        <td>{p.severity}</td>
-                        <td>{p.tags.join(", ")}</td>
-                        <td className="text-slate-500">
-                          {p.description?.slice(0, 120)}
-                        </td>
-                      </tr>
-                    ))}
+                    {rows.slice(0, 50).map((p, i) => {
+                      const dup = p.matched.length > 0;
+                      const skipped = !p.title || (skipDupes && dup);
+                      return (
+                        <tr
+                          key={i}
+                          className={cx(
+                            skipped && "opacity-40",
+                            dup && !skipped && "bg-amber-50",
+                          )}
+                        >
+                          <td className="font-medium text-slate-800">
+                            {p.title || "(no title — skipped)"}
+                            {dup && (
+                              <span
+                                className="ml-1.5 rounded bg-amber-100 px-1 py-0.5 text-[11px] font-normal text-amber-700"
+                                title={`Already in library: ${p.matched.join("; ")}`}
+                              >
+                                {skipDupes ? "duplicate — skipped" : "duplicate"}
+                              </span>
+                            )}
+                          </td>
+                          <td>{p.severity}</td>
+                          <td>{p.tags.join(", ")}</td>
+                          <td className="text-slate-500">
+                            {p.description?.slice(0, 120)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -254,9 +362,11 @@ export default function ImportBugsDialog({
           </Button>
           <Button
             onClick={doImport}
-            disabled={busy || valid.length === 0 || !map.title}
+            disabled={busy || toImport.length === 0 || !map.title}
           >
-            {busy ? "Importing…" : `Import ${valid.length} bug${valid.length === 1 ? "" : "s"}`}
+            {busy
+              ? "Importing…"
+              : `Import ${toImport.length} bug${toImport.length === 1 ? "" : "s"}`}
           </Button>
         </div>
       </div>

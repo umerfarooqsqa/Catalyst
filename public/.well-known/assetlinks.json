@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.catalystit.portal",
+      "sha256_cert_fingerprints": [
+        "89:6A:1E:8C:FF:22:F3:37:CC:F3:D2:78:8C:1D:19:8E:76:3E:CF:65:17:76:21:D5:ED:7A:8B:AC:CE:30:00:45"
+      ]
+    }
+  }
+]

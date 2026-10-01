@@ -119,13 +119,16 @@ export default function RequirementsView({
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-slate-500">
           Requirement → test case → bug traceability. {requirements.length}{" "}
           requirement(s).
         </p>
         {canEdit && (
-          <Button onClick={() => setShowNewReq((s) => !s)}>
+          <Button
+            onClick={() => setShowNewReq((s) => !s)}
+            className="w-full justify-center py-2 sm:w-auto"
+          >
             + New requirement
           </Button>
         )}
@@ -139,24 +142,39 @@ export default function RequirementsView({
 
       {showNewReq && (
         <Card className="mb-4 p-4">
-          <form onSubmit={addRequirement} className="space-y-2">
+          <form onSubmit={addRequirement} className="space-y-2.5">
             <input
               placeholder="Requirement title (e.g. REQ-3: …)"
               required
+              autoFocus
               value={nrTitle}
               onChange={(e) => setNrTitle(e.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
             />
             <textarea
               placeholder="Description"
-              rows={2}
+              rows={3}
               value={nrDesc}
               onChange={(e) => setNrDesc(e.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
             />
-            <Button type="submit" disabled={!nrTitle.trim()}>
-              Save requirement
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                type="submit"
+                disabled={!nrTitle.trim()}
+                className="flex-1 justify-center py-2 sm:flex-none"
+              >
+                Save requirement
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowNewReq(false)}
+                className="py-2"
+              >
+                Cancel
+              </Button>
+            </div>
           </form>
         </Card>
       )}
@@ -167,9 +185,9 @@ export default function RequirementsView({
           const passed = r.test_cases.filter((t) => t.status === "pass").length;
           return (
             <Card key={r.id} className="overflow-hidden">
-              <div className="flex items-start justify-between gap-3 p-4">
+              <div className="flex items-start justify-between gap-2 p-3 sm:p-4">
                 <button
-                  className="min-w-0 text-left"
+                  className="min-w-0 flex-1 text-left"
                   onClick={() =>
                     setOpen((s) => {
                       const n = new Set(s);
@@ -178,12 +196,14 @@ export default function RequirementsView({
                     })
                   }
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-400">{isOpen ? "▾" : "▸"}</span>
-                    <h3 className="font-semibold text-slate-800">{r.title}</h3>
-                    <Badge
-                      tone={r.status === "active" ? "green" : "slate"}
-                    >
+                  <div className="flex items-start gap-2">
+                    <span className="mt-0.5 text-slate-400">
+                      {isOpen ? "▾" : "▸"}
+                    </span>
+                    <h3 className="min-w-0 font-semibold text-slate-800">
+                      {r.title}
+                    </h3>
+                    <Badge tone={r.status === "active" ? "green" : "slate"}>
                       {titleCase(r.status)}
                     </Badge>
                   </div>
@@ -192,16 +212,34 @@ export default function RequirementsView({
                       {r.description}
                     </p>
                   )}
-                  <p className="mt-1 pl-5 text-xs text-slate-400">
-                    {r.test_cases.length} test case(s) · {passed} passing ·{" "}
-                    {r.bugs.length} bug(s) filed
-                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5 pl-5">
+                    <span className="rounded-md bg-grid-head px-1.5 py-0.5 text-[11px] font-medium text-slate-600">
+                      {r.test_cases.length} test
+                      {r.test_cases.length === 1 ? "" : "s"}
+                    </span>
+                    <span
+                      className={cx(
+                        "rounded-md px-1.5 py-0.5 text-[11px] font-medium",
+                        r.test_cases.length > 0 &&
+                          passed === r.test_cases.length
+                          ? "bg-brand-soft text-brand-fg"
+                          : "bg-grid-head text-slate-600",
+                      )}
+                    >
+                      {passed}/{r.test_cases.length} passing
+                    </span>
+                    {r.bugs.length > 0 && (
+                      <span className="rounded-md bg-red-50 px-1.5 py-0.5 text-[11px] font-medium text-red-700">
+                        {r.bugs.length} bug{r.bugs.length === 1 ? "" : "s"} filed
+                      </span>
+                    )}
+                  </div>
                 </button>
                 {canEdit && (
                   <select
                     value={r.status}
                     onChange={(e) => setReqStatus(r.id, e.target.value)}
-                    className="rounded border border-slate-300 px-2 py-1 text-xs"
+                    className="shrink-0 rounded-md border border-slate-300 px-2 py-1.5 text-xs"
                   >
                     {REQUIREMENT_STATUSES.map((s) => (
                       <option key={s} value={s}>
@@ -213,7 +251,7 @@ export default function RequirementsView({
               </div>
 
               {isOpen && (
-                <div className="border-t border-slate-100 bg-slate-50/60 p-4">
+                <div className="border-t border-slate-100 bg-slate-50/60 p-3 sm:p-4">
                   <div className="grid gap-4 lg:grid-cols-2">
                     <div>
                       <div className="mb-2 flex items-center justify-between">
@@ -234,71 +272,92 @@ export default function RequirementsView({
                       {tcFor === r.id && (
                         <form
                           onSubmit={addTestCase}
-                          className="mb-2 space-y-1 rounded border border-slate-200 bg-white p-2"
+                          className="mb-2 space-y-2 rounded-md border border-slate-200 bg-white p-2.5"
                         >
                           <input
                             placeholder="Test case title"
                             required
+                            autoFocus
                             value={tcTitle}
                             onChange={(e) => setTcTitle(e.target.value)}
-                            className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                            className="w-full rounded-md border border-slate-300 px-2.5 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
                           />
                           <textarea
                             placeholder="Steps"
                             rows={2}
                             value={tcSteps}
                             onChange={(e) => setTcSteps(e.target.value)}
-                            className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+                            className="w-full rounded-md border border-slate-300 px-2.5 py-2 text-xs outline-none focus:border-brand focus:ring-1 focus:ring-brand"
                           />
                           <input
                             placeholder="Expected result"
                             value={tcExpected}
                             onChange={(e) => setTcExpected(e.target.value)}
-                            className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                            className="w-full rounded-md border border-slate-300 px-2.5 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
                           />
-                          <Button type="submit" disabled={!tcTitle.trim()}>
-                            Save
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button
+                              type="submit"
+                              disabled={!tcTitle.trim()}
+                              className="flex-1 justify-center py-2 sm:flex-none"
+                            >
+                              Save
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              onClick={() => setTcFor(null)}
+                              className="py-2"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
                         </form>
                       )}
-                      <ul className="space-y-1">
+                      <ul className="space-y-1.5">
                         {r.test_cases.map((t) => (
                           <li
                             key={t.id}
-                            className="flex items-center justify-between gap-2 rounded bg-white px-2 py-1.5 text-sm"
+                            className="rounded-md border border-slate-200 bg-white p-2.5 text-sm"
                           >
-                            <span
-                              className="min-w-0 truncate"
-                              title={t.expected_result ?? undefined}
-                            >
-                              {t.title}
-                            </span>
-                            {canEdit ? (
-                              <select
-                                value={t.status}
-                                onChange={(e) =>
-                                  setTcStatus(t.id, e.target.value)
-                                }
-                                className={cx(
-                                  "rounded border px-1.5 py-0.5 text-xs",
-                                  t.status === "pass"
-                                    ? "border-green-300 text-green-700"
-                                    : t.status === "fail"
-                                      ? "border-red-300 text-red-700"
-                                      : "border-slate-300 text-slate-600",
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="min-w-0">
+                                <p className="font-medium text-slate-700">
+                                  {t.title}
+                                </p>
+                                {t.expected_result && (
+                                  <p className="mt-0.5 text-xs text-slate-400">
+                                    Expected: {t.expected_result}
+                                  </p>
                                 )}
-                              >
-                                {TEST_CASE_STATUSES.map((s) => (
-                                  <option key={s} value={s}>
-                                    {titleCase(s)}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <Badge tone={tcTone(t.status)}>
-                                {titleCase(t.status)}
-                              </Badge>
-                            )}
+                              </div>
+                              {canEdit ? (
+                                <select
+                                  value={t.status}
+                                  onChange={(e) =>
+                                    setTcStatus(t.id, e.target.value)
+                                  }
+                                  className={cx(
+                                    "w-full shrink-0 rounded-md border px-2 py-1.5 text-xs font-medium sm:w-auto",
+                                    t.status === "pass"
+                                      ? "border-green-300 text-green-700"
+                                      : t.status === "fail"
+                                        ? "border-red-300 text-red-700"
+                                        : "border-slate-300 text-slate-600",
+                                  )}
+                                >
+                                  {TEST_CASE_STATUSES.map((s) => (
+                                    <option key={s} value={s}>
+                                      {titleCase(s)}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <Badge tone={tcTone(t.status)}>
+                                  {titleCase(t.status)}
+                                </Badge>
+                              )}
+                            </div>
                           </li>
                         ))}
                         {r.test_cases.length === 0 && (

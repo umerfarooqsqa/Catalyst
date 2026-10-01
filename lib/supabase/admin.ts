@@ -38,3 +38,13 @@ export async function getAdminClient() {
   if (!canAdminister(level)) throw new Error("Not authorized");
   return { admin: serviceClient(), actorId: userId };
 }
+
+/**
+ * Service-role client for server contexts that have **no user session** to
+ * authorize against — inbound webhooks, cron jobs. The caller is
+ * responsible for its own authentication (e.g. a shared-secret header).
+ * Throws if the service_role key isn't configured.
+ */
+export function serviceRoleClient() {
+  return serviceClient();
+}

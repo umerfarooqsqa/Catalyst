@@ -10,7 +10,9 @@ const REQUIRED = [
 /** Required only for the features that use them — warn, don't crash. */
 const OPTIONAL = [
   "SUPABASE_SERVICE_ROLE_KEY", // user & role administration
-  "GEMINI_API_KEY", // requirements-document extraction
+  "AUTOMATION_INGEST_SECRET", // shared secret for the aktrade automation API
+  "RESEND_API_KEY", // release-completion email (REQ-13)
+  "EMAIL_FROM", // verified sender for the completion email
 ] as const;
 
 export function validateEnv() {

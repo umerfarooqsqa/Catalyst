@@ -58,11 +58,11 @@ export default async function ProjectsPage() {
               <tr>
                 <th className="rownum">#</th>
                 <th className="min-w-[10rem]">Project</th>
-                <th className="min-w-[16rem]">Description</th>
+                <th className="hidden min-w-[16rem] sm:table-cell">Description</th>
                 <th className="w-20 text-right">Open</th>
                 <th className="w-20 text-right">Total</th>
-                <th className="w-28">Created</th>
-                {canDelete && <th className="w-56" />}
+                <th className="hidden w-28 sm:table-cell">Created</th>
+                {canDelete && <th className="hidden w-56 sm:table-cell" />}
               </tr>
             </thead>
             <tbody>
@@ -79,18 +79,18 @@ export default async function ProjectsPage() {
                         {p.name}
                       </Link>
                     </td>
-                    <td className="text-slate-500">
+                    <td className="hidden text-slate-500 sm:table-cell">
                       {p.description || "—"}
                     </td>
                     <td className="text-right tabular-nums">{c.open}</td>
                     <td className="text-right tabular-nums text-slate-500">
                       {c.total}
                     </td>
-                    <td className="whitespace-nowrap text-xs text-slate-500">
+                    <td className="hidden whitespace-nowrap text-xs text-slate-500 sm:table-cell">
                       {fmtDate(p.created_at)}
                     </td>
                     {canDelete && (
-                      <td className="text-right">
+                      <td className="hidden text-right sm:table-cell">
                         <DeleteProjectButton
                           projectId={p.id}
                           projectName={p.name}

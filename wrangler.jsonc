@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "catalyst",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-09-11",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "NEXT_PUBLIC_SUPABASE_URL": "https://axlvyftdvwpxmlnglsvs.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF4bHZ5ZnRkdndweG1sbmdsc3ZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg5MzgwNzgsImV4cCI6MjEwNDUxNDA3OH0.BHQrPyT8MauUc4lXIGiPC9EW-EYV4TuUOILKYRe2VzM",
+    "NEXT_PUBLIC_VAPID_PUBLIC_KEY": "BDJJEpb9QK6PZlCEG0OUck0L_dKRthFE5bdv8l3stqkjGwo3qwoxzSGhlIicXpp0RDHxn0lhDH6nRE063RdOoPo",
+    "VAPID_SUBJECT": "mailto:shahmeerrff@gmail.com"
+  }
+}

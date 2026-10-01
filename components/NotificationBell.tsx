@@ -33,7 +33,20 @@ export default function NotificationBell({ userId }: { userId: string }) {
           table: "notifications",
           filter: `user_id=eq.${userId}`,
         },
-        () => load(),
+        (payload) => {
+          load();
+          // In-app cue for a fresh notification while the tab is open.
+          // (Closed-app alerts with sound come from the push service worker.)
+          if (
+            payload.eventType === "INSERT" &&
+            typeof document !== "undefined" &&
+            document.visibilityState === "visible" &&
+            typeof navigator !== "undefined" &&
+            typeof navigator.vibrate === "function"
+          ) {
+            navigator.vibrate([120, 60, 120]);
+          }
+        },
       )
       .subscribe();
     return () => {
@@ -53,16 +66,24 @@ export default function NotificationBell({ userId }: { userId: string }) {
   }
 
   function hrefFor(n: Notification): string {
-    if (n.related_bug_id) return `/my-queue?bug=${n.related_bug_id}`;
-    if (n.related_task_id) return `/my-queue?task=${n.related_task_id}`;
+    // the bug or task itself, opened in its project (app/(app)/bugs/[bugId], app/(app)/tasks/[taskId])
+    if (n.related_bug_id) return `/bugs/${n.related_bug_id}`;
+    if (n.related_task_id) return `/tasks/${n.related_task_id}`;
     return "/notifications";
+  }
+
+  async function openItem(n: Notification) {
+    setOpen(false);
+    if (n.is_read) return;
+    setItems((xs) => xs.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)));
+    await createClient().from("notifications").update({ is_read: true }).eq("id", n.id);
   }
 
   return (
     <div className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="relative rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-600 hover:bg-grid-head"
+        className="relative rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-600 transition hover:bg-grid-head"
         aria-label="Notifications"
       >
         Notifications
@@ -79,7 +100,7 @@ export default function NotificationBell({ userId }: { userId: string }) {
             className="fixed inset-0 z-10"
             onClick={() => setOpen(false)}
           />
-          <div className="absolute right-0 z-20 mt-2 w-80 rounded-sm border border-grid-line bg-white shadow-lg">
+          <div className="absolute right-0 z-20 mt-2 w-80 rounded-md border border-grid-line bg-white shadow-popover">
             <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
               <span className="text-sm font-medium">Notifications</span>
               <button
@@ -99,7 +120,7 @@ export default function NotificationBell({ userId }: { userId: string }) {
                   <Link
                     key={n.id}
                     href={hrefFor(n)}
-                    onClick={() => setOpen(false)}
+                    onClick={() => openItem(n)}
                     className={`block border-b border-slate-50 px-3 py-2 text-sm hover:bg-grid-head ${
                       n.is_read ? "text-slate-500" : "text-slate-800"
                     }`}
@@ -110,7 +131,7 @@ export default function NotificationBell({ userId }: { userId: string }) {
                       )}
                       <div>
                         <p>{n.message}</p>
-                        <p className="mt-0.5 text-xs text-slate-400">
+                        <p className="mt-0.5 text-xs text-slate-400" suppressHydrationWarning>
                           {fmtRelative(n.created_at)}
                         </p>
                       </div>

@@ -9,6 +9,18 @@ const supabaseHost = (() => {
   }
 })();
 
+// The aktrade Control Center on the tester's PC, for "Take phone screenshot" on a bug
+// (lib/phone-screenshot.ts). Both spellings of localhost, since either may be configured.
+const phoneHelper = (() => {
+  try {
+    const u = new URL(process.env.NEXT_PUBLIC_PHONE_HELPER_URL || "http://localhost:217");
+    const alt = u.hostname === "localhost" ? "127.0.0.1" : u.hostname === "127.0.0.1" ? "localhost" : null;
+    return [u.origin, alt && `${u.protocol}//${alt}${u.port ? `:${u.port}` : ""}`].filter(Boolean).join(" ");
+  } catch {
+    return "http://localhost:217 http://127.0.0.1:217";
+  }
+})();
+
 const csp = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -21,7 +33,9 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  `connect-src 'self' https://${supabaseHost} wss://${supabaseHost} https://generativelanguage.googleapis.com`,
+  "manifest-src 'self'",
+  "worker-src 'self'",
+  `connect-src 'self' https://${supabaseHost} wss://${supabaseHost} ${phoneHelper}`,
 ].join("; ");
 
 const securityHeaders = [
@@ -38,14 +52,33 @@ const nextConfig: NextConfig = {
   // A stray package-lock.json in the user's home dir makes Next mis-infer
   // the workspace root; pin it to this project.
   outputFileTracingRoot: path.join(__dirname),
-  // pdf-parse / mammoth are Node-only; keep them out of the bundle.
-  serverExternalPackages: ["pdf-parse", "mammoth"],
+  // mammoth / web-push are Node-only; keep them out of the bundle. (PDFs use unpdf, which is
+  // meant to be bundled -- it is the serverless PDF.js build that runs on Workers.)
+  serverExternalPackages: ["mammoth", "web-push"],
   eslint: {
     // Lint is run separately; don't fail production builds on lint.
     ignoreDuringBuilds: true,
   },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      {
+        // The service worker must never be served stale, or clients get
+        // stuck on an old push handler.
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+      {
+        source: "/manifest.webmanifest",
+        headers: [
+          { key: "Content-Type", value: "application/manifest+json" },
+          { key: "Cache-Control", value: "public, max-age=3600" },
+        ],
+      },
+    ];
   },
 };
 

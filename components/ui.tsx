@@ -14,7 +14,7 @@ export function Card({
   return (
     <div
       className={cx(
-        "rounded-sm border border-grid-line bg-white",
+        "rounded-md border border-grid-line bg-white shadow-card",
         className,
       )}
     >
@@ -35,7 +35,7 @@ export function PageHeader({
   return (
     <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h1 className="text-lg font-semibold text-slate-900 sm:text-xl">
+        <h1 className="text-lg font-semibold tracking-tight text-slate-900 sm:text-xl">
           {title}
         </h1>
         {subtitle ? (
@@ -67,7 +67,7 @@ export function Button({
     <button
       {...props}
       className={cx(
-        "inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-[13px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
         BTN[variant],
         className,
       )}
@@ -84,11 +84,11 @@ export function LinkButton({
     <Link
       {...props}
       className={cx(
-        "inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-[13px] font-medium transition",
+        "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-medium transition",
         BTN[variant],
         className,
       )}
-    />
+/>
   );
 }
 
@@ -112,7 +112,7 @@ export function Badge({
   return (
     <span
       className={cx(
-        "inline-flex items-center rounded-sm border px-1.5 py-0.5 text-[11px] font-medium",
+        "inline-flex items-center whitespace-nowrap rounded-sm border px-1.5 py-0.5 text-[11px] font-medium",
         tones[tone],
         className,
       )}
@@ -142,15 +142,109 @@ export function Stat({
           ? "text-brand-fg"
           : "text-slate-900";
   return (
-    <div className="rounded-sm border border-grid-line bg-white p-3">
-      <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+    <div className="flex flex-col rounded-md border border-grid-line bg-white p-3 shadow-card">
+      <div className="text-[11px] font-medium uppercase leading-tight tracking-wide text-slate-500">
         {label}
       </div>
-      <div className={cx("mt-0.5 text-2xl font-semibold tabular-nums", toneCls)}>
+      <div className={cx("mt-auto pt-1 text-2xl font-semibold tabular-nums", toneCls)}>
         {value}
       </div>
       {hint ? <div className="mt-0.5 text-xs text-slate-500">{hint}</div> : null}
     </div>
+  );
+}
+
+/* view-toggle icons — same hand-drawn 16px style as Sidebar's icon set */
+const VIEW_ICON = {
+  cards: "M4 2.5h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1zM6 5.5h4M6 8h4M6 10.5h2.5",
+  sheet: "M2.5 3h11v10h-11zM2.5 6.5h11M2.5 10h11M6.5 3v10M10.5 3v10",
+} as const;
+
+function ViewIcon({ d }: { d: string }) {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="shrink-0"
+    >
+      <path d={d} />
+    </svg>
+  );
+}
+
+/** Segmented control for switching a list between touch cards and the dense sheet. */
+export function ViewToggle({
+  view,
+  onChange,
+  className,
+}: {
+  view: "cards" | "sheet";
+  onChange: (v: "cards" | "sheet") => void;
+  className?: string;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="View"
+      className={cx(
+        "inline-flex shrink-0 rounded-md border border-slate-300 bg-white p-0.5 text-[12px] font-medium",
+        className,
+      )}
+    >
+      {(["cards", "sheet"] as const).map((v) => (
+        <button
+          key={v}
+          type="button"
+          role="tab"
+          aria-selected={view === v}
+          onClick={() => onChange(v)}
+          className={cx(
+            "flex items-center gap-1.5 rounded px-2.5 py-1 transition active:scale-95",
+            view === v
+              ? "bg-brand text-white"
+              : "text-slate-600 hover:bg-grid-head",
+          )}
+        >
+          <ViewIcon d={VIEW_ICON[v]} />
+          {v === "cards" ? "Cards" : "Sheet"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Thumb-reachable floating action button — phones only. */
+export function Fab({
+  onClick,
+  label,
+  className,
+}: {
+  onClick: () => void;
+  label: string;
+  className?: string;
+}) {
+  return (
+    <>
+    {/* room at the end of the page so the floating button never covers the last row (phones only) */}
+    <div aria-hidden className="h-20 lg:hidden" />
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className={cx(
+        "fixed bottom-5 right-5 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-brand text-3xl font-light leading-none text-white shadow-lg transition active:scale-90 lg:hidden",
+        className,
+      )}
+    >
+      +
+    </button>
+    </>
   );
 }
 
@@ -162,7 +256,7 @@ export function EmptyState({
   children?: ReactNode;
 }) {
   return (
-    <div className="rounded-sm border border-dashed border-grid-line bg-grid-head/40 p-8 text-center">
+    <div className="rounded-md border border-dashed border-grid-line bg-grid-head/40 p-8 text-center">
       <p className="font-medium text-slate-700">{title}</p>
       {children ? (
         <div className="mx-auto mt-1 max-w-md text-[13px] text-slate-500">
@@ -176,7 +270,7 @@ export function EmptyState({
 /* ----------------------------- Form fields ---------------------------- */
 
 const FIELD =
-  "w-full rounded-sm border border-slate-300 bg-white px-2.5 py-1.5 text-[13px] text-slate-800 outline-none transition focus:border-brand focus:ring-1 focus:ring-brand disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
+  "w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-[13px] text-slate-800 outline-none transition focus:border-brand focus:ring-1 focus:ring-brand disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
 
 export function Input({ className, ...props }: ComponentProps<"input">) {
   return <input {...props} className={cx(FIELD, className)} />;

@@ -72,8 +72,189 @@ export type Database = {
           },
         ]
       }
+      audit_log: {
+        Row: {
+          action: string
+          actor_id: string | null
+          changes: Json | null
+          created_at: string
+          entity_id: string
+          entity_label: string | null
+          entity_type: string
+          id: string
+          project_id: string | null
+          summary: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          changes?: Json | null
+          created_at?: string
+          entity_id: string
+          entity_label?: string | null
+          entity_type: string
+          id?: string
+          project_id?: string | null
+          summary?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          changes?: Json | null
+          created_at?: string
+          entity_id?: string
+          entity_label?: string | null
+          entity_type?: string
+          id?: string
+          project_id?: string | null
+          summary?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      automation_reports: {
+        Row: {
+          cost_usd: number | null
+          created_at: string
+          excel_path: string | null
+          files: Json
+          finished_at: string | null
+          id: string
+          platform: string | null
+          project_id: string
+          release_id: string | null
+          report: Json
+          run_id: string
+          runner: string | null
+          started_at: string | null
+          status: string
+          summary: Json
+          updated_at: string
+          version: string | null
+        }
+        Insert: {
+          cost_usd?: number | null
+          created_at?: string
+          excel_path?: string | null
+          files?: Json
+          finished_at?: string | null
+          id?: string
+          platform?: string | null
+          project_id: string
+          release_id?: string | null
+          report?: Json
+          run_id: string
+          runner?: string | null
+          started_at?: string | null
+          status?: string
+          summary?: Json
+          updated_at?: string
+          version?: string | null
+        }
+        Update: {
+          cost_usd?: number | null
+          created_at?: string
+          excel_path?: string | null
+          files?: Json
+          finished_at?: string | null
+          id?: string
+          platform?: string | null
+          project_id?: string
+          release_id?: string | null
+          report?: Json
+          run_id?: string
+          runner?: string | null
+          started_at?: string | null
+          status?: string
+          summary?: Json
+          updated_at?: string
+          version?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "automation_reports_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "automation_reports_release_id_fkey"
+            columns: ["release_id"]
+            isOneToOne: false
+            referencedRelation: "releases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      automation_runs: {
+        Row: {
+          broken: number
+          created_at: string
+          excel_report_path: string | null
+          failed: number
+          finished_at: string | null
+          id: string
+          passed: number
+          release_id: string
+          run_id: string
+          skipped: number
+          started_at: string | null
+          suite: string
+          test_results: Json
+        }
+        Insert: {
+          broken?: number
+          created_at?: string
+          excel_report_path?: string | null
+          failed?: number
+          finished_at?: string | null
+          id?: string
+          passed?: number
+          release_id: string
+          run_id: string
+          skipped?: number
+          started_at?: string | null
+          suite?: string
+          test_results?: Json
+        }
+        Update: {
+          broken?: number
+          created_at?: string
+          excel_report_path?: string | null
+          failed?: number
+          finished_at?: string | null
+          id?: string
+          passed?: number
+          release_id?: string
+          run_id?: string
+          skipped?: number
+          started_at?: string | null
+          suite?: string
+          test_results?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "automation_runs_release_id_fkey"
+            columns: ["release_id"]
+            isOneToOne: false
+            referencedRelation: "releases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       base_page: {
         Row: {
+          house_slug: string | null
+          platform: string | null
+          recurring_count: number
           category_id: string | null
           created_at: string
           created_by: string | null
@@ -91,6 +272,9 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          house_slug?: string | null
+          platform?: string | null
+          recurring_count?: number
           category_id?: string | null
           created_at?: string
           created_by?: string | null
@@ -108,6 +292,9 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          house_slug?: string | null
+          platform?: string | null
+          recurring_count?: number
           category_id?: string | null
           created_at?: string
           created_by?: string | null
@@ -184,12 +371,19 @@ export type Database = {
       }
       bugs: {
         Row: {
+          automation_key: string | null
+          occurrences: number
+          recurring: boolean
+          release_id: string | null
+          source: string
           assignee_id: string | null
           base_page_id: string | null
           category_id: string | null
           closed_at: string | null
+          copied_from_bug_id: string | null
           created_at: string
           created_by: string | null
+          delegated_by: string | null
           description: string | null
           due_date: string | null
           id: string
@@ -201,14 +395,23 @@ export type Database = {
           steps_to_reproduce: string | null
           title: string
           updated_at: string
+          version_confirmed_at: string | null
+          version_confirmed_by: string | null
         }
         Insert: {
+          automation_key?: string | null
+          occurrences?: number
+          recurring?: boolean
+          release_id?: string | null
+          source?: string
           assignee_id?: string | null
           base_page_id?: string | null
           category_id?: string | null
           closed_at?: string | null
+          copied_from_bug_id?: string | null
           created_at?: string
           created_by?: string | null
+          delegated_by?: string | null
           description?: string | null
           due_date?: string | null
           id?: string
@@ -220,14 +423,23 @@ export type Database = {
           steps_to_reproduce?: string | null
           title: string
           updated_at?: string
+          version_confirmed_at?: string | null
+          version_confirmed_by?: string | null
         }
         Update: {
+          automation_key?: string | null
+          occurrences?: number
+          recurring?: boolean
+          release_id?: string | null
+          source?: string
           assignee_id?: string | null
           base_page_id?: string | null
           category_id?: string | null
           closed_at?: string | null
+          copied_from_bug_id?: string | null
           created_at?: string
           created_by?: string | null
+          delegated_by?: string | null
           description?: string | null
           due_date?: string | null
           id?: string
@@ -239,8 +451,17 @@ export type Database = {
           steps_to_reproduce?: string | null
           title?: string
           updated_at?: string
+          version_confirmed_at?: string | null
+          version_confirmed_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "bugs_delegated_by_fkey"
+            columns: ["delegated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "bugs_assignee_id_fkey"
             columns: ["assignee_id"]
@@ -263,6 +484,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "bugs_copied_from_bug_id_fkey"
+            columns: ["copied_from_bug_id"]
+            isOneToOne: false
+            referencedRelation: "bugs"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "bugs_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
@@ -274,6 +502,20 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bugs_release_id_fkey"
+            columns: ["release_id"]
+            isOneToOne: false
+            referencedRelation: "releases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bugs_version_confirmed_by_fkey"
+            columns: ["version_confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
@@ -291,6 +533,7 @@ export type Database = {
           bug_id: string | null
           content: string
           created_at: string
+          edited_at: string | null
           id: string
           task_id: string | null
         }
@@ -299,6 +542,7 @@ export type Database = {
           bug_id?: string | null
           content: string
           created_at?: string
+          edited_at?: string | null
           id?: string
           task_id?: string | null
         }
@@ -307,6 +551,7 @@ export type Database = {
           bug_id?: string | null
           content?: string
           created_at?: string
+          edited_at?: string | null
           id?: string
           task_id?: string | null
         }
@@ -393,6 +638,7 @@ export type Database = {
         Row: {
           avatar_url: string | null
           created_at: string
+          dev_rank: string | null
           email: string
           full_name: string
           id: string
@@ -402,6 +648,7 @@ export type Database = {
         Insert: {
           avatar_url?: string | null
           created_at?: string
+          dev_rank?: string | null
           email: string
           full_name: string
           id: string
@@ -411,6 +658,7 @@ export type Database = {
         Update: {
           avatar_url?: string | null
           created_at?: string
+          dev_rank?: string | null
           email?: string
           full_name?: string
           id?: string
@@ -462,27 +710,48 @@ export type Database = {
       }
       projects: {
         Row: {
+          assigned_developer_id: string | null
+          notify_emails: string[]
           created_at: string
           created_by: string | null
+          current_version: string | null
           description: string | null
+          house_group: string | null
+          house_slug: string | null
           id: string
           name: string
+          platform: string | null
+          release_notes_ref: string | null
           updated_at: string
         }
         Insert: {
+          assigned_developer_id?: string | null
+          notify_emails?: string[]
           created_at?: string
           created_by?: string | null
+          current_version?: string | null
           description?: string | null
+          house_group?: string | null
+          house_slug?: string | null
           id?: string
           name: string
+          platform?: string | null
+          release_notes_ref?: string | null
           updated_at?: string
         }
         Update: {
+          assigned_developer_id?: string | null
+          notify_emails?: string[]
           created_at?: string
           created_by?: string | null
+          current_version?: string | null
           description?: string | null
+          house_group?: string | null
+          house_slug?: string | null
           id?: string
           name?: string
+          platform?: string | null
+          release_notes_ref?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -491,6 +760,235 @@ export type Database = {
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      push_subscriptions: {
+        Row: {
+          auth: string
+          created_at: string
+          endpoint: string
+          id: string
+          p256dh: string
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          auth: string
+          created_at?: string
+          endpoint: string
+          id?: string
+          p256dh: string
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          auth?: string
+          created_at?: string
+          endpoint?: string
+          id?: string
+          p256dh?: string
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "push_subscriptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      automation_runners: {
+        Row: {
+          app_version: string | null
+          created_at: string
+          id: string
+          last_seen_at: string
+          name: string
+          os: string
+          platform: string
+          status: string
+        }
+        Insert: {
+          app_version?: string | null
+          created_at?: string
+          id?: string
+          last_seen_at?: string
+          name: string
+          os: string
+          platform: string
+          status?: string
+        }
+        Update: {
+          app_version?: string | null
+          created_at?: string
+          id?: string
+          last_seen_at?: string
+          name?: string
+          os?: string
+          platform?: string
+          status?: string
+        }
+        Relationships: []
+      }
+      test_jobs: {
+        Row: {
+          bug_id: string | null
+          claimed_at: string | null
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          generated_tests: Json
+          id: string
+          kind: string
+          note: string | null
+          platform: string
+          project_id: string
+          runner_id: string | null
+          status: string
+        }
+        Insert: {
+          bug_id?: string | null
+          claimed_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          generated_tests?: Json
+          id?: string
+          kind?: string
+          note?: string | null
+          platform: string
+          project_id: string
+          runner_id?: string | null
+          status?: string
+        }
+        Update: {
+          bug_id?: string | null
+          claimed_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          generated_tests?: Json
+          id?: string
+          kind?: string
+          note?: string | null
+          platform?: string
+          project_id?: string
+          runner_id?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_jobs_bug_id_fkey"
+            columns: ["bug_id"]
+            isOneToOne: false
+            referencedRelation: "bugs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "test_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "test_jobs_runner_id_fkey"
+            columns: ["runner_id"]
+            isOneToOne: false
+            referencedRelation: "automation_runners"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_automation: {
+        Row: {
+          folder: string
+          last_run_at: string | null
+          last_synced_at: string
+          project_id: string
+          runner_name: string | null
+          tests_approved: number
+          tests_pending: number
+          tests_total: number
+        }
+        Insert: {
+          folder: string
+          last_run_at?: string | null
+          last_synced_at?: string
+          project_id: string
+          runner_name?: string | null
+          tests_approved?: number
+          tests_pending?: number
+          tests_total?: number
+        }
+        Update: {
+          folder?: string
+          last_run_at?: string | null
+          last_synced_at?: string
+          project_id?: string
+          runner_name?: string | null
+          tests_approved?: number
+          tests_pending?: number
+          tests_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_automation_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      releases: {
+        Row: {
+          claimed_bugs: Json
+          completed_at: string | null
+          discrepancies: Json
+          id: string
+          notify_emails: string[]
+          project_id: string
+          release_notes_ref: string | null
+          started_at: string
+          status: string
+          version: string
+        }
+        Insert: {
+          claimed_bugs?: Json
+          completed_at?: string | null
+          discrepancies?: Json
+          id?: string
+          notify_emails?: string[]
+          project_id: string
+          release_notes_ref?: string | null
+          started_at?: string
+          status?: string
+          version: string
+        }
+        Update: {
+          claimed_bugs?: Json
+          completed_at?: string | null
+          discrepancies?: Json
+          id?: string
+          notify_emails?: string[]
+          project_id?: string
+          release_notes_ref?: string | null
+          started_at?: string
+          status?: string
+          version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "releases_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]
@@ -609,6 +1107,7 @@ export type Database = {
           key: string
           label: string
           level: string
+          platform: string | null
           sort_order: number
           updated_at: string
         }
@@ -620,6 +1119,7 @@ export type Database = {
           key: string
           label: string
           level: string
+          platform?: string | null
           sort_order?: number
           updated_at?: string
         }
@@ -631,10 +1131,56 @@ export type Database = {
           key?: string
           label?: string
           level?: string
+          platform?: string | null
           sort_order?: number
           updated_at?: string
         }
         Relationships: []
+      }
+      task_audit_log: {
+        Row: {
+          action: string
+          actor_id: string | null
+          created_at: string
+          from_value: string | null
+          id: string
+          task_id: string
+          to_value: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          created_at?: string
+          from_value?: string | null
+          id?: string
+          task_id: string
+          to_value?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          created_at?: string
+          from_value?: string | null
+          id?: string
+          task_id?: string
+          to_value?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "task_audit_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "task_audit_log_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       tasks: {
         Row: {
@@ -642,6 +1188,7 @@ export type Database = {
           completed_at: string | null
           created_at: string
           created_by: string | null
+          delegated_by: string | null
           description: string | null
           due_date: string | null
           id: string
@@ -657,6 +1204,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
+          delegated_by?: string | null
           description?: string | null
           due_date?: string | null
           id?: string
@@ -672,6 +1220,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
+          delegated_by?: string | null
           description?: string | null
           due_date?: string | null
           id?: string
@@ -683,6 +1232,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "tasks_delegated_by_fkey"
+            columns: ["delegated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "tasks_assignee_id_fkey"
             columns: ["assignee_id"]
@@ -772,9 +1328,20 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      assign_project_developer: { Args: { p_project: string; p_developer: string | null }; Returns: number }
+      profile_platform: { Args: { p_user: string }; Returns: string }
+      user_platform: { Args: never; Returns: string }
+      can_see_project: { Args: { p_project: string }; Returns: boolean }
+      can_see_bug: { Args: { p_bug: string }; Returns: boolean }
+      can_see_task: { Args: { p_task: string }; Returns: boolean }
+      claim_test_job: {
+        Args: { p_platform: string; p_runner_id: string }
+        Returns: Database["public"]["Tables"]["test_jobs"]["Row"][]
+      }
       is_admin: { Args: never; Returns: boolean }
       is_qa_or_admin: { Args: never; Returns: boolean }
       is_staff: { Args: never; Returns: boolean }
+      is_viewer: { Args: never; Returns: boolean }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
     }
@@ -797,7 +1364,12 @@ export type Database = {
         | "retest_ready"
       requirement_doc_status: "pending" | "processing" | "completed" | "failed"
       requirement_status: "draft" | "active" | "deprecated"
-      task_status: "todo" | "in_progress" | "blocked" | "done"
+      task_status:
+        | "todo"
+        | "in_progress"
+        | "blocked"
+        | "pending_approval"
+        | "done"
       test_case_status: "pending" | "pass" | "fail"
     }
     CompositeTypes: {
@@ -946,7 +1518,13 @@ export const Constants = {
       ],
       requirement_doc_status: ["pending", "processing", "completed", "failed"],
       requirement_status: ["draft", "active", "deprecated"],
-      task_status: ["todo", "in_progress", "blocked", "done"],
+      task_status: [
+        "todo",
+        "in_progress",
+        "blocked",
+        "pending_approval",
+        "done",
+      ],
       test_case_status: ["pending", "pass", "fail"],
     },
   },

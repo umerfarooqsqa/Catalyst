@@ -71,6 +71,7 @@ export default function DueInput({
   return (
     <div className={compact ? "relative" : undefined}>
       <input
+        suppressHydrationWarning
         tabIndex={compact ? -1 : undefined}
         disabled={disabled}
         value={focused ? text : display}

@@ -38,8 +38,9 @@ export default function NotificationList({
   }
 
   function href(n: Notification) {
-    if (n.related_bug_id) return `/my-queue?bug=${n.related_bug_id}`;
-    if (n.related_task_id) return `/my-queue?task=${n.related_task_id}`;
+    // the bug or task itself, opened in its project (app/(app)/bugs/[bugId], app/(app)/tasks/[taskId])
+    if (n.related_bug_id) return `/bugs/${n.related_bug_id}`;
+    if (n.related_task_id) return `/tasks/${n.related_task_id}`;
     return "#";
   }
 
@@ -64,10 +65,14 @@ export default function NotificationList({
                 {titleCase(n.type)}
               </Badge>
               <div>
-                <Link href={href(n)} className="text-sm text-slate-800 hover:text-brand">
+                <Link
+                  href={href(n)}
+                  onClick={() => !n.is_read && markRead(n.id, true)}
+                  className="text-sm text-slate-800 hover:text-brand"
+                >
                   {n.message}
                 </Link>
-                <p className="mt-0.5 text-xs text-slate-400">
+                <p className="mt-0.5 text-xs text-slate-400" suppressHydrationWarning>
                   {fmtDateTime(n.created_at)}
                 </p>
               </div>

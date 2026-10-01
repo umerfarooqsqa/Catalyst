@@ -33,7 +33,7 @@ export const getMembers = cache(async (): Promise<MemberOption[]> => {
   const supabase = await createClient();
   const { data } = await supabase
     .from("profiles")
-    .select("id, full_name, role, roles(label, assignable)")
+    .select("id, full_name, role, roles(label, assignable, level, platform)")
     .order("full_name");
   return (data as MemberOption[] | null) ?? [];
 });

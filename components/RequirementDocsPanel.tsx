@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Card, Button, Badge, cx } from "@/components/ui";
+import { Card, Badge, cx } from "@/components/ui";
 import { SEVERITY_LABELS } from "@/lib/severity";
 import { fmtDateTime, titleCase } from "@/lib/format";
 import { canManageRequirements } from "@/lib/permissions";
@@ -21,6 +21,43 @@ const STATUS_TONE: Record<string, "slate" | "blue" | "green" | "red" | "amber"> 
   failed: "red",
 };
 
+// pending = uploaded here, waiting for a runner; processing = a runner took it
+// (aktrade app/api/automation/requirements/claim) and it is being extracted or reviewed.
+const STATUS_LABEL: Record<string, string> = {
+  pending: "Waiting for Claude Code",
+  processing: "With Claude Code",
+  completed: "Completed",
+  failed: "Failed",
+};
+
+const MAX_BYTES = 20 * 1024 * 1024;
+
+// "#101" is more likely a number than a colour, so 3-digit codes need a letter.
+const HEX = /#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3})(?![0-9a-z])/gi;
+const isColour = (code: string) => code.length > 4 || /[a-f]/i.test(code);
+
+/** Text with a colour chip beside every hex code, so a reader sees the colour, not just its code. */
+function ColorText({ text }: { text: string }) {
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(HEX)) {
+    if (!isColour(m[0])) continue;
+    parts.push(text.slice(last, m.index));
+    parts.push(
+      <span
+        key={m.index}
+        aria-hidden
+        className="mx-0.5 inline-block h-3 w-3 rounded-sm border border-slate-300 align-[-1px]"
+        style={{ background: m[0] }}
+      />,
+      m[0],
+    );
+    last = m.index + m[0].length;
+  }
+  parts.push(text.slice(last));
+  return <>{parts}</>;
+}
+
 export default function RequirementDocsPanel({
   projectId,
   docs,
@@ -28,6 +65,7 @@ export default function RequirementDocsPanel({
   categories,
   role,
   userId,
+  hasApp,
 }: {
   projectId: string;
   docs: RequirementDocument[];
@@ -35,13 +73,14 @@ export default function RequirementDocsPanel({
   categories: Pick<BugCategory, "id" | "name">[];
   role: RoleLevel;
   userId: string;
+  /** The project is linked to an aktrade app (house), so a runner can pick documents up. */
+  hasApp: boolean;
 }) {
   const router = useRouter();
   const canManage = canManageRequirements(role);
   const supabase = createClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
-  const [running, setRunning] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [open, setOpen] = useState(extracted.length > 0);
@@ -52,32 +91,34 @@ export default function RequirementDocsPanel({
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setBusy(true);
     setErr(null);
     setMsg(null);
+    if (file.size > MAX_BYTES) {
+      setErr("The file is larger than 20 MB.");
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
+    setBusy(true);
     try {
-      const path = `${projectId}/${Date.now()}-${file.name}`;
-      const up = await supabase.storage
-        .from("requirement-documents")
-        .upload(path, file);
+      const path = `${projectId}/${Date.now()}-${file.name.replace(/[^\w. ()-]/g, "_")}`;
+      const up = await supabase.storage.from("requirement-documents").upload(path, file);
       if (up.error) throw new Error(up.error.message);
-
-      const { data: doc, error } = await supabase
-        .from("requirement_documents")
-        .insert({
-          project_id: projectId,
-          file_path: path,
-          file_name: file.name,
-          file_size_bytes: file.size,
-          uploaded_by: userId,
-        })
-        .select("id")
-        .single();
-      if (error) throw new Error(error.message);
-
-      setMsg("Uploaded — extracting requirements with Gemini…");
+      const { error } = await supabase.from("requirement_documents").insert({
+        project_id: projectId,
+        file_path: path,
+        file_name: file.name,
+        file_size_bytes: file.size,
+        status: "pending",
+        uploaded_by: userId,
+      });
+      if (error) {
+        await supabase.storage.from("requirement-documents").remove([path]);
+        throw new Error(error.message);
+      }
+      setMsg(
+        `"${file.name}" was sent to Claude Code. The automation machine picks it up at its next sync (within about 5 minutes while its dashboard is running). The requirements appear here once someone has reviewed them in the Development Portal.`,
+      );
       router.refresh();
-      await runProcess(doc.id);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Upload failed");
     } finally {
@@ -86,23 +127,15 @@ export default function RequirementDocsPanel({
     }
   }
 
-  async function runProcess(docId: string) {
-    if (running) return;
+  async function sendAgain(docId: string) {
     setErr(null);
-    setRunning(docId);
-    try {
-      const res = await fetch(`/api/requirement-documents/${docId}/process`, {
-        method: "POST",
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok && res.status !== 200) {
-        setErr(body.error || `Extraction failed (${res.status})`);
-      } else {
-        setMsg(`Extracted ${body.extracted} requirement(s) into the library.`);
-        setOpen(true);
-      }
-    } finally {
-      setRunning(null);
+    const { error } = await supabase
+      .from("requirement_documents")
+      .update({ status: "pending", error_message: null })
+      .eq("id", docId);
+    if (error) setErr(error.message);
+    else {
+      setMsg("Sent to Claude Code again.");
       router.refresh();
     }
   }
@@ -154,14 +187,21 @@ export default function RequirementDocsPanel({
             Client requirements documents
           </h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            Upload a PDF / DOCX / TXT. Gemini splits it into atomic
-            requirements stored in the shared library (
-            <span className="font-medium">base_page</span>), ready to reuse
-            into bugs. No live link back.
+            Send a PDF / DOCX / TXT / MD here, or add it on the aktrade{" "}
+            <span className="font-medium">Development Portal</span> (next to the release notes).
+            Claude Code splits it into atomic requirements in plain language: sizes as a share of
+            the screen, colours by name, look and hex code. Someone reviews them on the Development
+            Portal, and they land here, ready to copy into bugs. No live link back.
           </p>
+          {canManage && !hasApp && (
+            <p className="mt-1 text-xs text-amber-700">
+              This project has no app linked, so no automation machine can pick documents up. Link
+              it from the Development Portal&apos;s &quot;Add an app&quot; first.
+            </p>
+          )}
         </div>
-        {canManage && (
-          <div>
+        {canManage && hasApp && (
+          <div className="shrink-0">
             <input
               ref={fileRef}
               type="file"
@@ -178,7 +218,7 @@ export default function RequirementDocsPanel({
                 busy && "pointer-events-none opacity-50",
               )}
             >
-              {busy ? "Working…" : "+ Upload document"}
+              {busy ? "Sending…" : "Send to Claude Code"}
             </label>
           </div>
         )}
@@ -206,7 +246,7 @@ export default function RequirementDocsPanel({
                 <span className="font-medium text-slate-800">
                   {d.file_name}
                 </span>
-                <span className="ml-2 text-xs text-slate-400">
+                <span className="ml-2 text-xs text-slate-400" suppressHydrationWarning>
                   {fmtDateTime(d.created_at)}
                   {d.status === "completed"
                     ? ` · ${d.requirements_extracted} extracted`
@@ -215,21 +255,24 @@ export default function RequirementDocsPanel({
                 {d.status === "failed" && d.error_message && (
                   <p className="text-xs text-red-600">{d.error_message}</p>
                 )}
+                {d.status === "processing" && (
+                  <p className="text-xs text-slate-500">
+                    Being extracted, or waiting for review on the Development Portal.
+                  </p>
+                )}
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <Badge tone={STATUS_TONE[d.status] ?? "slate"}>
-                  {titleCase(d.status)}
+                  {STATUS_LABEL[d.status] ?? titleCase(d.status)}
                 </Badge>
-                {canManage &&
-                  (d.status === "failed" || d.status === "pending") && (
-                    <button
-                      onClick={() => runProcess(d.id)}
-                      disabled={running !== null}
-                      className="text-xs text-brand hover:underline disabled:opacity-40"
-                    >
-                      {running === d.id ? "running…" : "run"}
-                    </button>
-                  )}
+                {canManage && hasApp && d.status === "failed" && (
+                  <button
+                    onClick={() => sendAgain(d.id)}
+                    className="text-xs text-brand hover:underline"
+                  >
+                    send again
+                  </button>
+                )}
                 {canManage && (
                   <button
                     onClick={() => deleteDoc(d.id)}
@@ -281,7 +324,9 @@ export default function RequirementDocsPanel({
                         </span>
                       </div>
                       {r.description && (
-                        <p className="mt-1 text-slate-600">{r.description}</p>
+                        <p className="mt-1 text-slate-600">
+                          <ColorText text={r.description} />
+                        </p>
                       )}
                     </div>
                     {canManage && (

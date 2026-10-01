@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import NotificationBell from "@/components/NotificationBell";
+import InstallButton from "@/components/InstallButton";
+import AndroidAppButton from "@/components/AndroidAppButton";
 import { cx } from "@/components/ui";
 import type { Project, RoleLevel } from "@/lib/types/models";
 
@@ -90,12 +92,12 @@ export default function AppShell({
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-grid-line bg-white px-3 sm:px-4">
+        <header className="relative z-10 flex h-12 shrink-0 items-center gap-2 border-b border-grid-line bg-white px-3 shadow-card sm:px-4">
           <button
             onClick={toggle}
             aria-label="Toggle sidebar"
             title="Toggle sidebar"
-            className="rounded-sm border border-slate-300 p-1.5 text-slate-600 hover:bg-grid-head"
+            className="rounded-md border border-slate-300 p-1.5 text-slate-600 hover:bg-grid-head"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path
@@ -112,12 +114,12 @@ export default function AppShell({
               desktopExpanded && "lg:hidden",
             )}
           >
-            <span className="flex h-5 w-5 items-center justify-center rounded-sm bg-brand text-[11px] font-bold text-white">
-              C
-            </span>
+            <img src="/brand/logo-mark.png" alt="Catalyst" className="h-7 w-7 shrink-0 object-contain" />
             Catalyst
           </span>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <AndroidAppButton variant="header" />
+            <InstallButton />
             <NotificationBell userId={userId} />
           </div>
         </header>

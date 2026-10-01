@@ -77,6 +77,14 @@ function RoleForm({
           </Select>
         </FormRow>
 
+        <FormRow label="Sees projects" className="min-w-[11rem]">
+          <Select name="platform" defaultValue={role?.platform ?? ""}>
+            <option value="">All platforms</option>
+            <option value="android">Android only</option>
+            <option value="ios">iOS only</option>
+          </Select>
+        </FormRow>
+
         <FormRow label="Sort" className="w-20">
           <Input
             name="sort_order"

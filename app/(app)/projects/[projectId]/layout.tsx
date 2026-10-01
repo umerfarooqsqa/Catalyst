@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireProfile, getProjects } from "@/lib/auth";
 import ProjectTabs from "@/components/ProjectTabs";
-import { canAdminister } from "@/lib/permissions";
+import { canAdminister, canSeeAutomation } from "@/lib/permissions";
 
 export default async function ProjectLayout({
   children,
@@ -34,6 +34,7 @@ export default async function ProjectLayout({
         <ProjectTabs
           projectId={project.id}
           canSettings={canAdminister(level)}
+          canAutomation={canSeeAutomation(level)}
         />
         {children}
       </div>

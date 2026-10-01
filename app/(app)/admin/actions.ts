@@ -6,8 +6,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { requireProfile } from "@/lib/auth";
 import { canAdminister } from "@/lib/permissions";
-import { ROLE_LEVELS } from "@/lib/types/models";
-import type { RoleLevel, Severity } from "@/lib/types/models";
+import { DEV_RANKS, ROLE_LEVELS } from "@/lib/types/models";
+import type { DevRank, RoleLevel, Severity } from "@/lib/types/models";
 
 async function assertAdmin() {
   const { level } = await requireProfile();
@@ -35,9 +35,14 @@ export async function updateUser(formData: FormData) {
   const id = String(formData.get("id"));
   const role = String(formData.get("role"));
   const full_name = String(formData.get("full_name") || "").trim() || undefined;
+  // Lead/junior only means something for developer (contributor-level) roles (migration 0040).
+  const rank = String(formData.get("dev_rank") || "");
+  const { data: roleRow } = await supabase.from("roles").select("level").eq("key", role).maybeSingle();
+  const dev_rank =
+    roleRow?.level === "contributor" && DEV_RANKS.includes(rank as DevRank) ? rank : null;
   const { error } = await supabase
     .from("profiles")
-    .update({ role, ...(full_name ? { full_name } : {}) })
+    .update({ role, dev_rank, ...(full_name ? { full_name } : {}) })
     .eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/admin/users");
@@ -79,6 +84,9 @@ export async function saveRole(formData: FormData) {
   const assignable = formData.get("assignable") === "on";
   const is_default = formData.get("is_default") === "on";
   const sort_order = Number(formData.get("sort_order")) || 100;
+  // A role tied to a platform sees only that platform's projects (migration 0034).
+  const platformRaw = String(formData.get("platform") || "");
+  const platform = platformRaw === "android" || platformRaw === "ios" ? platformRaw : null;
 
   if (!label) throw new Error("Label is required");
   if (!ROLE_LEVELS.includes(level)) throw new Error("Invalid permission level");
@@ -94,7 +102,7 @@ export async function saveRole(formData: FormData) {
   if (id) {
     const { error } = await supabase
       .from("roles")
-      .update({ label, level, assignable, is_default, sort_order })
+      .update({ label, level, assignable, is_default, sort_order, platform })
       .eq("id", id);
     if (error) throw new Error(error.message);
   } else {
@@ -102,7 +110,7 @@ export async function saveRole(formData: FormData) {
     if (!key) throw new Error("Could not derive a key from that label");
     const { error } = await supabase
       .from("roles")
-      .insert({ key, label, level, assignable, is_default, sort_order });
+      .insert({ key, label, level, assignable, is_default, sort_order, platform });
     if (error) throw new Error(error.message);
   }
 
@@ -172,6 +180,35 @@ export async function createUser(formData: FormData) {
   // Surface the one-time password back to the admin via the redirect target.
   redirect(
     `/admin/users?created=${encodeURIComponent(email)}&pw=${encodeURIComponent(password)}`,
+  );
+}
+
+export async function setUserPassword(formData: FormData) {
+  const { admin } = await getAdminClient();
+  const id = String(formData.get("id"));
+  if (!id) throw new Error("Missing user id");
+  const generate = formData.get("generate") === "1";
+
+  const password = generate
+    ? genPassword()
+    : String(formData.get("password") || "");
+  if (password.length < 8)
+    throw new Error("Password must be at least 8 characters.");
+
+  const { error } = await admin.auth.admin.updateUserById(id, { password });
+  if (error) throw new Error(error.message);
+
+  const { data: target } = await admin
+    .from("profiles")
+    .select("email")
+    .eq("id", id)
+    .single();
+  const who = target?.email || id;
+
+  revalidatePath("/admin/users");
+  redirect(
+    `/admin/users?pwset=${encodeURIComponent(who)}` +
+      (generate ? `&pw=${encodeURIComponent(password)}` : ""),
   );
 }
 
