@@ -15,9 +15,10 @@ timestamped history, independent of the comments thread:
   policy granting `authenticated` users access, so rows can only ever be produced by the
   trigger — a direct `insert into task_audit_log` from a normal session is rejected by RLS
   (verified manually; don't add an insert policy for this table without a strong reason).
-- `task_audit_log_select` RLS mirrors `tasks_select` from migration 0017 exactly (admin/
-  manager/viewer see every row; a contributor only sees the log for tasks where they're the
-  assignee or creator) — keep these two policies in sync if task visibility rules change again.
+- `task_audit_log_select` RLS mirrors `tasks_select` exactly (admin/manager/viewer see every
+  row; a contributor only sees the log for tasks where they're the assignee or creator, or the
+  lead developer who handed the task on, `delegated_by`, since migration 0040) — keep these two
+  policies in sync if task visibility rules change again.
 - UI: a new "Audit log" section in `components/TaskDrawer.tsx`, below Comments, rendering
   `TASK_AUDIT_ACTION_LABELS` (`lib/types/models.ts`) against each row's `from_value`/
   `to_value`. Comments were left as their own separate, unmerged section rather than fusing
