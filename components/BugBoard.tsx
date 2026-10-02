@@ -628,7 +628,7 @@ export default function BugBoard({
           className="rounded-md border border-slate-300 px-1.5 py-1"
           title="Role category (Admin → Role categories)"
         >
-          <option value="">Category: all</option>
+          <option value="">Role: all</option>
           {roleCats.map((c) => (
             <option key={c.key} value={c.key}>
               {c.short_label}
@@ -929,7 +929,7 @@ export default function BugBoard({
                   <SortHead k="severity">Severity</SortHead>
                 </th>
                 <th className="min-w-[7rem]">
-                  <SortHead k="area">Category</SortHead>
+                  <SortHead k="area">Role</SortHead>
                 </th>
                 <th className="min-w-[6rem]">
                   <SortHead k="priority">Priority</SortHead>
