@@ -1,6 +1,7 @@
 import Link from "next/link";
 import VersionChip from "@/components/VersionChip";
 import AreaChip from "@/components/AreaChip";
+import LocalTime from "@/components/LocalTime";
 import type { ReactNode } from "react";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
@@ -52,6 +53,7 @@ function QueueCard({
   href,
   title,
   project,
+  logged,
   actions,
 }: {
   badges: ReactNode;
@@ -59,6 +61,8 @@ function QueueCard({
   href: string;
   title: string;
   project?: string | null;
+  /** When the bug was logged (bugs.created_at); tasks pass nothing. */
+  logged?: string | null;
   actions: ReactNode;
 }) {
   return (
@@ -73,6 +77,11 @@ function QueueCard({
         {title}
       </Link>
       {project ? <p className="mt-1 truncate text-xs text-slate-500">{project}</p> : null}
+      {logged ? (
+        <p className="mt-0.5 text-xs text-slate-400">
+          Logged <LocalTime value={logged} />
+        </p>
+      ) : null}
       {/* pushes the actions to the bottom, so cards in one grid row line up */}
       <div className="flex-1" />
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-grid-line pt-2.5">
@@ -86,7 +95,7 @@ function QueueCard({
 }
 
 const BUG_FIELDS =
-  "id, title, severity, area, priority, status, due_date, project_id, assignee_id, projects(name, platform), version_confirmed_at, release:releases(version), delegator:profiles!bugs_delegated_by_fkey(full_name), assignee:profiles!bugs_assignee_id_fkey(full_name)";
+  "id, title, severity, area, priority, status, due_date, created_at, project_id, assignee_id, projects(name, platform), version_confirmed_at, release:releases(version), delegator:profiles!bugs_delegated_by_fkey(full_name), assignee:profiles!bugs_assignee_id_fkey(full_name)";
 const TASK_FIELDS =
   "id, title, status, priority, area, due_date, project_id, assignee_id, projects(name, platform), delegator:profiles!tasks_delegated_by_fkey(full_name), assignee:profiles!tasks_assignee_id_fkey(full_name)";
 
@@ -207,6 +216,7 @@ export default async function MyQueuePage() {
                   <QueueCard
                     key={b.id}
                     href={`/projects/${b.project_id}/bugs?focus=${b.id}`}
+                    logged={b.created_at}
                     title={b.title}
                     project={[
                       b.projects?.name,
@@ -243,6 +253,7 @@ export default async function MyQueuePage() {
             <QueueCard
               key={b.id}
               href={`/projects/${b.project_id}/bugs?focus=${b.id}`}
+              logged={b.created_at}
               title={b.title}
               project={b.projects?.name}
               due={b.due_date}
@@ -330,6 +341,7 @@ export default async function MyQueuePage() {
                 <QueueCard
                   key={b.id}
                   href={`/projects/${b.project_id}/bugs?focus=${b.id}`}
+                  logged={b.created_at}
                   title={b.title}
                   project={b.projects?.name}
                   due={b.due_date}

@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import BugBoard from "@/components/BugBoard";
 import { notFound } from "next/navigation";
 import type { BugWithJoins } from "@/lib/types/models";
+import { isManager } from "@/lib/permissions";
+import type { EmailSettings, EmailStats } from "@/components/EmailModePanel";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +59,17 @@ export default async function BugsPage({
   const project = projects.find((p) => p.id === projectId);
   if (!project) notFound();
 
+  // Email mode and counters (migration 0044), QA/admin only. Until 0044 is applied both
+  // queries fail, and the panel stays hidden instead of breaking the page.
+  let email: { settings: EmailSettings | null; stats: EmailStats | null } | null = null;
+  if (isManager(level)) {
+    const [{ data: settings, error: settingsErr }, { data: stats, error: statsErr }] = await Promise.all([
+      supabase.from("project_email_settings").select("*").eq("project_id", projectId).maybeSingle(),
+      supabase.rpc("email_stats", { p_project: projectId }),
+    ]);
+    if (!settingsErr) email = { settings: settings ?? null, stats: statsErr ? null : (stats?.[0] ?? null) };
+  }
+
   // Android/iOS sibling of this house (same house_group, other platform), if
   // this house is platform-split -- lets the bug drawer offer "copy to X".
   let siblingProject: { id: string; name: string; platform: string } | null = null;
@@ -84,6 +97,7 @@ export default async function BugsPage({
       userId={userId}
       siblingProject={siblingProject}
       projectPlatform={projectRow?.platform ?? null}
+      email={email}
       projectDevelopers={{
         none: projectRow?.assigned_developer_id ?? null,
         areas: Object.fromEntries((areaDevRows ?? []).map((r) => [r.area, r.developer_id])),

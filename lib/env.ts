@@ -11,8 +11,7 @@ const REQUIRED = [
 const OPTIONAL = [
   "SUPABASE_SERVICE_ROLE_KEY", // user & role administration
   "AUTOMATION_INGEST_SECRET", // shared secret for the aktrade automation API
-  "RESEND_API_KEY", // release-completion email (REQ-13)
-  "EMAIL_FROM", // verified sender for the completion email
+  "EMAIL_FROM", // sender of the completion email (REQ-13) and the bug emails (0044)
 ] as const;
 
 export function validateEnv() {

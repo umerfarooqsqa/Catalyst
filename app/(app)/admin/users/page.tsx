@@ -6,7 +6,7 @@ import { DEV_RANKS, DEV_RANK_LABELS } from "@/lib/types/models";
 import { skillsOf } from "@/lib/bug-area";
 import { getRoleCategories } from "@/lib/data";
 import type { RoleCategory } from "@/lib/types/models";
-import { updateUser, createUser, deleteUser, setUserPassword } from "../actions";
+import { updateUser, createUser, deleteUser, setUserPassword, setNotificationEmail } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -33,14 +33,17 @@ export default async function AdminUsersPage({
   const { userId } = await requireProfile();
   const { created, pw, pwset } = await searchParams;
   const supabase = await createClient();
-  const [{ data: users }, { data: roles }, roleCats] = await Promise.all([
+  const [{ data: users }, { data: roles }, roleCats, { data: notifyRows }] = await Promise.all([
     supabase
       .from("profiles")
       .select("id, full_name, email, role, dev_rank, skills, created_at, roles(label, level)")
       .order("created_at"),
     supabase.from("roles").select("key, label, level").order("sort_order"),
     getRoleCategories(),
+    // Where each user's bug emails go (migration 0045; admins read all, RLS).
+    supabase.from("notification_emails").select("user_id, email"),
   ]);
+  const notifyOf = new Map((notifyRows ?? []).map((r) => [r.user_id, r.email]));
 
   const rows = (users ?? []) as unknown as ProfileRow[];
   const roleOpts = roles ?? [];
@@ -99,6 +102,9 @@ export default async function AdminUsersPage({
           <FormRow label="Email" className="min-w-[12rem] flex-1">
             <Input name="email" type="email" required placeholder="jane@catalyst.pk" />
           </FormRow>
+          <FormRow label="Gmail for bug emails (optional)" className="min-w-[12rem] flex-1">
+            <Input name="notify_email" type="email" placeholder="jane.doe@gmail.com" />
+          </FormRow>
           <FormRow label="Role" className="min-w-[10rem]">
             <Select name="role" required defaultValue="">
               <option value="" disabled>
@@ -135,6 +141,7 @@ export default async function AdminUsersPage({
               {u.id === userId ? null : <DeleteForm u={u} />}
             </div>
             <div className="mt-3 space-y-2">
+              <NotifyEmailForm u={u} email={notifyOf.get(u.id) ?? null} />
               <RoleForm u={u} roleOpts={roleOpts} cats={roleCats} />
               <PasswordForm u={u} self={u.id === userId} />
             </div>
@@ -148,6 +155,7 @@ export default async function AdminUsersPage({
             <tr>
               <th className="min-w-[10rem]">Name</th>
               <th className="min-w-[12rem]">Email</th>
+              <th className="min-w-[17rem]">Bug emails go to</th>
               <th className="min-w-[26rem]">Role, rank and skills</th>
               <th className="min-w-[14rem]">Password</th>
               <th className="min-w-[8rem]">Joined</th>
@@ -166,6 +174,9 @@ export default async function AdminUsersPage({
                   ) : null}
                 </td>
                 <td className="text-slate-500">{u.email}</td>
+                <td>
+                  <NotifyEmailForm u={u} email={notifyOf.get(u.id) ?? null} />
+                </td>
                 <td>
                   <RoleForm u={u} roleOpts={roleOpts} cats={roleCats} />
                 </td>
@@ -186,6 +197,27 @@ export default async function AdminUsersPage({
 }
 
 type RoleOpt = { key: string; label: string; level: string };
+
+/** Where this user's bug emails go (migration 0045). Without one they get no email, only the bell. */
+function NotifyEmailForm({ u, email }: { u: ProfileRow; email: string | null }) {
+  return (
+    <form action={setNotificationEmail} className="flex flex-wrap items-center gap-1.5">
+      <input type="hidden" name="id" value={u.id} />
+      <Input
+        name="notify_email"
+        type="email"
+        defaultValue={email ?? ""}
+        placeholder="name@gmail.com"
+        aria-label={`Where ${u.full_name ?? "this user"}'s bug emails go`}
+        className={email ? "max-w-[13rem]" : "max-w-[13rem] border-amber-300"}
+      />
+      <Button type="submit" variant="secondary">
+        Save
+      </Button>
+      {!email && <span className="text-xs text-amber-700">no emails yet</span>}
+    </form>
+  );
+}
 
 function RoleForm({ u, roleOpts, cats }: { u: ProfileRow; roleOpts: RoleOpt[]; cats: RoleCategory[] }) {
   return (

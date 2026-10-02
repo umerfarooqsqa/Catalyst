@@ -19,6 +19,7 @@ import BugComments from "@/components/BugComments";
 import AttachmentGallery from "@/components/AttachmentGallery";
 import { usePhoneHelper } from "@/lib/phone-helper-available";
 import AreaChip from "@/components/AreaChip";
+import LocalTime from "@/components/LocalTime";
 import AssigneeOptions from "@/components/AssigneeOptions";
 import { areaPatch, categoryOf, isArea, suggestArea } from "@/lib/bug-area";
 import { useRoleCategories } from "@/components/RoleCategories";
@@ -406,6 +407,9 @@ export default function BugDrawer({
               {bug.category?.name ?? "Uncategorised"}
               {bug.requirement ? ` · violates ${bug.requirement.title}` : ""}
               {bug.assignee ? ` · assigned to ${bug.assignee.full_name}` : ""}
+            </p>
+            <p className="text-xs text-slate-500">
+              Logged <LocalTime value={bug.created_at} />
             </p>
             {bug.base_page_id && (
               <p className="mt-1 text-xs text-slate-400">

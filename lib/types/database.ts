@@ -722,6 +722,8 @@ export type Database = {
       }
       projects: {
         Row: {
+          /** Generated from name (migration 0046); unique per platform. Never written. */
+          name_key: string
           assigned_developer_id: string | null
           notify_emails: string[]
           created_at: string
@@ -1188,6 +1190,132 @@ export type Database = {
           },
         ]
       }
+      project_email_settings: {
+        Row: {
+          project_id: string
+          mode: "instant" | "auto_batch" | "daily_digest"
+          batch_size: number
+          fallback_hours: number
+          digest_time: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          project_id: string
+          mode?: "instant" | "auto_batch" | "daily_digest"
+          batch_size?: number
+          fallback_hours?: number
+          digest_time?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          project_id?: string
+          mode?: "instant" | "auto_batch" | "daily_digest"
+          batch_size?: number
+          fallback_hours?: number
+          digest_time?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_email_settings_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_items: {
+        Row: {
+          item_id: string
+          kind: "bug" | "task"
+          project_id: string | null
+          bug_id: string | null
+          task_id: string | null
+          whatsapp_group: string | null
+          imported_at: string
+          imported_by: string | null
+        }
+        Insert: {
+          item_id: string
+          kind: "bug" | "task"
+          project_id?: string | null
+          bug_id?: string | null
+          task_id?: string | null
+          whatsapp_group?: string | null
+          imported_at?: string
+          imported_by?: string | null
+        }
+        Update: {
+          item_id?: string
+          kind?: "bug" | "task"
+          project_id?: string | null
+          bug_id?: string | null
+          task_id?: string | null
+          whatsapp_group?: string | null
+          imported_at?: string
+          imported_by?: string | null
+        }
+        Relationships: []
+      }
+      notification_emails: {
+        Row: {
+          user_id: string
+          email: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          user_id: string
+          email: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          user_id?: string
+          email?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_emails_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_opt_outs: {
+        Row: {
+          user_id: string
+          event_type: "all" | "assignment" | "status_change" | "comment" | "retest_ready"
+          created_at: string
+        }
+        Insert: {
+          user_id: string
+          event_type: "all" | "assignment" | "status_change" | "comment" | "retest_ready"
+          created_at?: string
+        }
+        Update: {
+          user_id?: string
+          event_type?: "all" | "assignment" | "status_change" | "comment" | "retest_ready"
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_opt_outs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       roles: {
         Row: {
           assignable: boolean
@@ -1430,6 +1558,59 @@ export type Database = {
       claim_test_job: {
         Args: { p_platform: string; p_runner_id: string }
         Returns: Database["public"]["Tables"]["test_jobs"]["Row"][]
+      }
+      email_stats: {
+        Args: { p_project?: string | null }
+        Returns: {
+          sent_today: number
+          daily_limit: number
+          queued: number
+          pending_bugs: number
+          pending_people: number
+          project_pending_bugs: number
+        }[]
+      }
+      email_claim: {
+        Args: { p_limit?: number }
+        Returns: {
+          id: string
+          recipient_id: string | null
+          recipient_email: string
+          kind: "instant" | "critical" | "batch" | "digest"
+          priority: number
+          items: Json
+          status: "queued" | "sending" | "sent" | "failed"
+          attempts: number
+          last_error: string | null
+          send_after: string
+          claimed_at: string | null
+          sent_at: string | null
+          created_at: string
+        }[]
+      }
+      email_mark: {
+        Args: { p_id: string; p_ok: boolean; p_error?: string | null; p_final?: boolean }
+        Returns: undefined
+      }
+      email_sweep: { Args: never; Returns: number }
+      whatsapp_import: {
+        Args: { p_rows: Json; p_create_projects?: boolean; p_dry_run?: boolean }
+        Returns: Json
+      }
+      whatsapp_inbox_upsert: { Args: { p_rows: Json }; Returns: Json }
+      whatsapp_inbox_status: { Args: never; Returns: Json }
+      whatsapp_auto_import: { Args: never; Returns: Json }
+      whatsapp_inbox_dismiss: { Args: { p_item_ids: string[] }; Returns: number }
+      whatsapp_inbox_waiting: {
+        Args: never
+        Returns: {
+          item_id: string
+          row: Json
+          status: "new" | "skipped" | "dismissed"
+          received_count: number
+          first_received_at: string
+          last_received_at: string
+        }[]
       }
       is_admin: { Args: never; Returns: boolean }
       is_qa_or_admin: { Args: never; Returns: boolean }

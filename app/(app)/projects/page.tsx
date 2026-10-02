@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { PageHeader, EmptyState } from "@/components/ui";
+import { PageHeader, EmptyState, LinkButton } from "@/components/ui";
 import { canManageProjects, canAdminister } from "@/lib/permissions";
 import { fmtDate } from "@/lib/format";
 import NewProjectForm from "./new-project-form";
@@ -35,7 +35,17 @@ export default async function ProjectsPage() {
 
   return (
     <div>
-      <PageHeader title="Projects" subtitle="One row per app being tested." />
+      <PageHeader
+        title="Projects"
+        subtitle="One row per app being tested."
+        actions={
+          canManage ? (
+            <LinkButton href="/import/whatsapp" title="Import bugs and tasks from Grok's WhatsApp sheet">
+              Import from WhatsApp
+            </LinkButton>
+          ) : undefined
+        }
+      />
 
       {canManage && (
         <div className="mb-4">

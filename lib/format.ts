@@ -21,6 +21,28 @@ export function fmtDateTime(v: string | null | undefined): string {
   });
 }
 
+/** Date and time with the year, e.g. "Oct 2, 2026, 03:14 PM" (when a bug was logged). */
+export function fmtTimestamp(v: string | null | undefined): string {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** The full form for a tooltip: weekday, seconds and time zone. */
+export function fmtTimestampFull(v: string | null | undefined): string {
+  if (!v) return "";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, { dateStyle: "full", timeStyle: "long" });
+}
+
 export function fmtRelative(v: string | null | undefined): string {
   if (!v) return "—";
   const d = new Date(v).getTime();

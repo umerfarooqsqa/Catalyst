@@ -7,6 +7,8 @@ const PUBLIC_PATHS = [
   "/auth",
   "/api/health",
   "/api/push/dispatch", // Supabase webhook — authorized by its own shared secret
+  "/api/email/dispatch", // Supabase ping (0044) — sends only what is already queued, within the quota
+  "/api/intake/whatsapp", // Grok (0047) — its own key; can only add rows to the review inbox
   "/api/automation", // aktrade automation API — authorized by its own shared secret
   "/manifest.webmanifest",
   "/sw.js",

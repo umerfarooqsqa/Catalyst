@@ -17,6 +17,7 @@ import BugDrawer from "@/components/BugDrawer";
 import DueInput from "@/components/DueInput";
 import VersionChip from "@/components/VersionChip";
 import VersionsPanel from "@/components/VersionsPanel";
+import EmailModePanel, { type EmailSettings, type EmailStats } from "@/components/EmailModePanel";
 import AreaChip from "@/components/AreaChip";
 import AssigneeOptions from "@/components/AssigneeOptions";
 import ClassifyAreaDialog from "@/components/ClassifyAreaDialog";
@@ -24,7 +25,8 @@ import { NO_DEVELOPERS, areaPatch, isArea, peopleForArea, shortLabel, skillsOf }
 import { useRoleCategories } from "@/components/RoleCategories";
 import type { AreaDevelopers, BugArea } from "@/lib/bug-area";
 import { SEVERITY_LABELS } from "@/lib/severity";
-import { fmtDateTime, titleCase } from "@/lib/format";
+import { fmtDateTime, fmtTimestamp, titleCase } from "@/lib/format";
+import LocalTime from "@/components/LocalTime";
 import { fmtDueShort } from "@/lib/parseDue";
 import { exportRows, loadBugScreenshots } from "@/lib/export";
 import {
@@ -64,9 +66,11 @@ type Props = {
   projectPlatform?: string | null;
   /** The project's developers: per area (migration 0041) and for bugs with no area (0035). */
   projectDevelopers?: AreaDevelopers;
+  /** Email mode and counters (migration 0044); null for non-managers or before 0044 is applied. */
+  email?: { settings: EmailSettings | null; stats: EmailStats | null } | null;
 };
 
-type SortKey = "title" | "severity" | "area" | "priority" | "status" | "due_date";
+type SortKey = "title" | "severity" | "area" | "priority" | "status" | "due_date" | "created_at";
 const SEV_RANK: Record<Severity, number> = {
   critical: 0,
   major: 1,
@@ -89,6 +93,7 @@ export default function BugBoard({
   siblingProject,
   projectPlatform = null,
   projectDevelopers = NO_DEVELOPERS,
+  email = null,
 }: Props) {
   const router = useRouter();
   const params = useSearchParams();
@@ -345,6 +350,10 @@ export default function BugBoard({
           av = a.due_date ? Date.parse(a.due_date) : Infinity;
           bv = b.due_date ? Date.parse(b.due_date) : Infinity;
           break;
+        case "created_at":
+          av = Date.parse(a.created_at);
+          bv = Date.parse(b.created_at);
+          break;
         default:
           av = a.title.toLowerCase();
           bv = b.title.toLowerCase();
@@ -453,6 +462,7 @@ export default function BugBoard({
         requirement: b.requirement?.title ?? "",
         assignee: memberName(b.assignee_id),
         due_date: b.due_date ? fmtDateTime(b.due_date) : "",
+        logged_at: fmtTimestamp(b.created_at),
       })),
       [
         { key: "title", header: "Title" },
@@ -468,6 +478,7 @@ export default function BugBoard({
         { key: "requirement", header: "Requirement" },
         { key: "assignee", header: "Assignee" },
         { key: "due_date", header: "Due Date" },
+        { key: "logged_at", header: "Logged At" },
       ],
       `${projectName.replace(/\s+/g, "-")}-bugs`,
       "Bugs",
@@ -576,6 +587,10 @@ export default function BugBoard({
         <span className="text-xs text-slate-400">new bugs go to their category&apos;s person, else the least busy person in it</span>
         {devMsg && <span className="text-xs text-green-700">{devMsg}</span>}
       </div>
+
+      {email && (
+        <EmailModePanel projectId={projectId} userId={userId} settings={email.settings} stats={email.stats} />
+      )}
 
       <VersionsPanel
         projectId={projectId}
@@ -865,6 +880,9 @@ export default function BugBoard({
                 </div>
                 <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 border-t border-slate-100 pt-2 text-[12px] text-slate-500">
                   <span>Reporter: {memberName(b.created_by)}</span>
+                  <span>
+                    Logged: <LocalTime value={b.created_at} />
+                  </span>
                   <span>Assignee: {memberName(b.assignee_id)}</span>
                   {b.category?.name && <span>{b.category.name}</span>}
                 </div>
@@ -923,6 +941,9 @@ export default function BugBoard({
                 <th className="min-w-[9rem]">Category</th>
                 <th className="min-w-[8rem]">
                   <SortHead k="due_date">Due</SortHead>
+                </th>
+                <th className="min-w-[10rem]">
+                  <SortHead k="created_at">Logged</SortHead>
                 </th>
                 {isManager(role) && <th className="min-w-[4rem]" />}
               </tr>
@@ -1129,6 +1150,9 @@ export default function BugBoard({
                           onCommit={(iso) => patch(b.id, { due_date: iso })}
                         />
                       )}
+                    </td>
+                    <td>
+                      <LocalTime value={b.created_at} className="cell-input whitespace-nowrap text-slate-600" />
                     </td>
                     {isManager(role) && (
                       <td className="text-center">

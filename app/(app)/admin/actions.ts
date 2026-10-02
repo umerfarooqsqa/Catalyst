@@ -172,21 +172,44 @@ export async function deleteRole(formData: FormData) {
 
 /* ------------------------------- Users -------------------------------- */
 
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+/** Where a user's bug emails go (migration 0045); empty removes it. Admin only (RLS too). */
+export async function setNotificationEmail(formData: FormData) {
+  const supabase = await assertAdmin();
+  const id = String(formData.get("id"));
+  const email = String(formData.get("notify_email") || "").trim().toLowerCase();
+  if (email && !EMAIL_RE.test(email)) throw new Error(`"${email}" is not an email address.`);
+  const { error } = email
+    ? await supabase.from("notification_emails").upsert({ user_id: id, email })
+    : await supabase.from("notification_emails").delete().eq("user_id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin/users");
+}
+
 export async function createUser(formData: FormData) {
   const { admin } = await getAdminClient();
   const email = String(formData.get("email") || "").trim().toLowerCase();
   const full_name = String(formData.get("full_name") || "").trim();
   const role = String(formData.get("role") || "").trim();
+  const notifyEmail = String(formData.get("notify_email") || "").trim().toLowerCase();
   if (!email || !full_name || !role) throw new Error("Email, name and role are required");
+  if (notifyEmail && !EMAIL_RE.test(notifyEmail)) throw new Error(`"${notifyEmail}" is not an email address.`);
 
   const password = genPassword();
-  const { error } = await admin.auth.admin.createUser({
+  const { data: created, error } = await admin.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
     user_metadata: { full_name, role },
   });
   if (error) throw new Error(error.message);
+  if (notifyEmail && created.user) {
+    const { error: e2 } = await admin
+      .from("notification_emails")
+      .upsert({ user_id: created.user.id, email: notifyEmail });
+    if (e2) throw new Error(`User created, but the notification email was not saved: ${e2.message}`);
+  }
 
   revalidatePath("/admin/users");
   // Surface the one-time password back to the admin via the redirect target.
