@@ -112,20 +112,20 @@ export default async function MyQueuePage() {
         .select(BUG_FIELDS)
         .eq("assignee_id", userId)
         .not("status", "in", "(closed)")
-        .order("due_date", { ascending: true, nullsFirst: false }),
+        .order("created_at", { ascending: false }),
       supabase
         .from("tasks")
         .select(TASK_FIELDS)
         .eq("assignee_id", userId)
         .neq("status", "done")
-        .order("due_date", { ascending: true, nullsFirst: false }),
+        .order("created_at", { ascending: false }),
       lead
         ? supabase
             .from("bugs")
             .select(BUG_FIELDS)
             .eq("delegated_by", userId)
             .not("status", "in", "(closed)")
-            .order("due_date", { ascending: true, nullsFirst: false })
+            .order("created_at", { ascending: false })
         : Promise.resolve({ data: null }),
       lead
         ? supabase
@@ -133,7 +133,7 @@ export default async function MyQueuePage() {
             .select(TASK_FIELDS)
             .eq("delegated_by", userId)
             .neq("status", "done")
-            .order("due_date", { ascending: true, nullsFirst: false })
+            .order("created_at", { ascending: false })
         : Promise.resolve({ data: null }),
       lead
         ? supabase
@@ -157,7 +157,7 @@ export default async function MyQueuePage() {
   const handedOnCount = (handedBugs?.length ?? 0) + (handedTasks?.length ?? 0);
 
   // Admins: every bug a developer marked fixed (or QA set ready for retest), across all
-  // projects, oldest first, until an admin closes or reopens it. Who marked it fixed and
+  // projects, latest first, until an admin closes or reopens it. Who marked it fixed and
   // when comes from the audit log (admin-only, migration 0020).
   const admin = isAdmin(level);
   const { data: fixedBugs } = admin
@@ -165,7 +165,7 @@ export default async function MyQueuePage() {
         .from("bugs")
         .select(BUG_FIELDS)
         .in("status", ["fixed", "ready_for_retest"])
-        .order("updated_at", { ascending: true })
+        .order("updated_at", { ascending: false })
         .limit(200)
     : { data: null };
   const markedFixed = new Map<string, { by: string | null; at: string }>();
@@ -197,8 +197,8 @@ export default async function MyQueuePage() {
           admin
             ? "Bugs developers marked fixed, waiting for you to verify, then everything assigned to you across projects."
             : lead
-            ? "Everything assigned to you across projects, most urgent first. Hand bugs and tasks to a junior developer, and follow what you handed on below."
-            : "Everything assigned to you across projects, most urgent first. Mark bugs fixed and tasks done right here."
+            ? "Everything assigned to you across projects, latest first. Hand bugs and tasks to a junior developer, and follow what you handed on below."
+            : "Everything assigned to you across projects, latest first. Mark bugs fixed and tasks done right here."
         }
       />
 

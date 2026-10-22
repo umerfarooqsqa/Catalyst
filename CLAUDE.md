@@ -199,7 +199,7 @@ rewrite.
   - **App:** `getRoleCategories()` (`lib/data.ts`, cached, tag `role-categories`) is loaded once by the app layout into `RoleCategoriesProvider` (`components/RoleCategories.tsx`). Components read it with `useRoleCategories()`. `lib/bug-area.ts` is now data-driven (`suggestArea(text, roleCats, bugCats, bugCategoryId)`, `categoryOf`, `isArea`, `shortLabel`, colours by name). Automation routes validate an `area` against the table.
   - **Tasks page:** Category column, filter, badge and export. "New task" suggests the category and offers "Auto: least busy in …" as the assignee.
   - **Deploy order:** apply 0043 and deploy **together**. 0043 drops the four project columns that the previous build's Bugs page reads, and the new build reads `project_area_developers`.
-- **Admin verify queue (2026-10-01, deployed `87a0ab75`):** My Queue shows admins "Fixed: waiting for you to verify": every fixed / ready-for-retest bug across projects, oldest first, with who marked it fixed and when (from `audit_log`), and Close / Reopen (`VerifyFixActions` in `components/QueueActions.tsx`). No migration.
+- **Admin verify queue (2026-10-01, deployed `87a0ab75`):** My Queue shows admins "Fixed: waiting for you to verify": every fixed / ready-for-retest bug across projects, latest first (2026-10-22, by request), with who marked it fixed and when (from `audit_log`), and Close / Reopen (`VerifyFixActions` in `components/QueueActions.tsx`). No migration.
 - **"Logged" time on bugs (2026-10-02, no migration, deployed `ae9375d8`):** `bugs.created_at` shows as a sortable "Logged" column on the Bugs sheet, on cards, in the drawer, on My Queue bug cards and as "Logged At" in the export. `components/LocalTime.tsx` renders it after mount in the viewer's time zone (the server renders in UTC, and a mismatched hydration would keep the server's text).
 
 ### Import from WhatsApp (2026-10-02, migration 0046; applied, deployed `ac1c1430-64dc-4e7f-9a94-44591da00a65`)
@@ -343,8 +343,8 @@ Keep these columns in sync across both tables if the schema changes.
 - **Keyboard shortcuts** — `n` new bug, `a` assign, `d` mark done, in the table views.
 - **Table-first UI** — bugs/tasks are primarily a fast, spreadsheet-like editable table, not a
   Kanban board. Inline cell editing, sortable/filterable columns, saved views, bulk actions.
-- **"My Queue" view** — a developer's assigned bugs/tasks only, sorted by due date/SLA
-  urgency.
+- **"My Queue" view** — a developer's assigned bugs/tasks only, newest first (by `created_at`; was due date/SLA
+  urgency until 2026-10-22, changed by request).
 - **"Mark fixed → ready for retest"** — a one-click status transition on a bug that
   auto-notifies the original QA tester (the bug's `created_by`) to verify.
 - **SLA aging alerts** — compare `bugs.sla_deadline` (computed at creation/assignment from
