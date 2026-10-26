@@ -99,7 +99,7 @@ Verified live with curl and the Python client against throwaway versions (rows d
   - Only processing/failed rows change. A completed or re-sent (pending) row answers 409, so a stale report can't undo a person's "send again".
 - **`POST requirements` with `document_id`** completes that row instead of inserting a new one. It refuses a row from another project (404) or one already completed (409), and restores the old status if the `base_page` insert fails.
 
-### App warnings, checked in the cloud (2026-10-26, migration 0056; replaces the same day's runner-pushed Play versions)
+### App warnings, checked in the cloud (2026-10-26, migrations 0055 + 0056 applied, deployed `47118b70`; replaces the same day's runner-pushed Play versions)
 Decided with the user: every warning about an Android app is a card in My Queue for admins and QA, and nothing depends on a tester's PC. The runner route `POST play-versions` (0055) was removed; `play_versions` stays as the Play facts table, now written by the cloud job.
 - **Clock:** `pg_cron` job `catalyst-app-monitor` (every 5 min) → `app_monitor_sweep()`. It raises/clears "checks have stopped" per app (`stale_minutes`, so a dead Worker is visible), then pings the Worker when a check is due (`app_monitor_kick`: pg_net POST `monitor_url` with header `x-monitor-secret`, both in `private.settings`).
 - **Worker:** `POST /api/monitor/run` (`lib/monitor/run.ts`, in `PUBLIC_PATHS`, secret checked against the DB through `monitor_setting`). It claims due checks one at a time (`monitor_claim`, skip locked; a claim older than 10 min is taken back) for ~20 s and reports each (`monitor_done`: next run after `play_minutes`/`vitals_minutes`, a failure retries in 15 min, doubling).
@@ -114,7 +114,7 @@ Decided with the user: every warning about an Android app is a card in My Queue 
 - **Admin → Google Play** (`app/(app)/admin/google-play`): upload keys (Vault, `play_key_put`/`play_key_delete`, admin only), monitoring on/off (`app_monitor_config.enabled`, off until the keys are in), run now, thresholds, target API rules, the Apps Script, unmatched emails, history.
 - **Runner (read-only):** `GET app-warnings?house=` returns the open warnings and the Play facts for the aktrade start gate.
 - **Versions:** `releases.target_sdk` (VersionsPanel "API n", add-version field, `release-notes/add` `target_sdk`); `projects.android_package` (Settings; seeded `com.catalyst.<house_slug>`; `projects` POST `package`).
-- **Tested** on PGlite with a stub schema (29 checks: queue, claim, sync/clear/close/reopen, notify recipients and email opt-out, Vault keys, stale sweep) and the rules with 27 unit cases. Not yet against the live database or Google.
+- **Tested** on PGlite with a stub schema (29 checks: queue, claim, sync/clear/close/reopen, notify recipients and email opt-out, Vault keys, stale sweep) and the rules with 27 unit cases. Live: migrations applied, routes answer 401 to wrong secrets, a rolled-back sync on ZLK gave 5 bells + 4 emails. The Google side runs once the keys are uploaded and monitoring is switched on (Admin → Google Play).
 
 ### Bug Library, export and all-bugs routes
 
