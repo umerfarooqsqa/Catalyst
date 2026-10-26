@@ -10,7 +10,7 @@ import { SEVERITY_LABELS } from "@/lib/severity";
 import { fmtDate, fmtDateTime, titleCase } from "@/lib/format";
 import { BugQueueActions, TaskQueueActions, DelegateSelect, VerifyFixActions, WarningCloseAction } from "@/components/QueueActions";
 import type { JuniorOption } from "@/components/QueueActions";
-import { isAdmin, isLeadDeveloper, isManager } from "@/lib/permissions";
+import { isAdmin, isLeadDeveloper } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -194,26 +194,24 @@ export default async function MyQueuePage() {
         .order("updated_at", { ascending: false })
         .limit(200)
     : { data: null };
-  // Admins and QA: warnings about each Android app, checked in the cloud every few minutes
-  // (migration 0056, lib/monitor/run.ts). A card stays until QA or an admin closes it; it
-  // comes back if its condition is still true at the next check. Critical first.
-  const qa = isManager(level);
-  const { data: warningRows } = qa
+  // App health members only (role category app_health, migration 0058): serious warnings about
+  // each Android app, checked in the cloud every few minutes (lib/monitor/run.ts). Amber ones and
+  // the monitor's own problems are listed on Admin -> Google Play instead. A card stays until
+  // someone closes it, and comes back if its condition is still true at the next check.
+  const appHealth = (profile.skills ?? []).includes("app_health");
+  const { data: warningRows } = appHealth
     ? await supabase
         .from("app_warnings")
         .select(
           "id, project_id, source, kind, severity, title, detail, action_url, active, first_seen_at, cleared_at, reopened_count, projects(name)",
         )
         .eq("status", "open")
+        .eq("severity", "critical")
+        .not("source", "like", "monitor%")
         .order("last_seen_at", { ascending: false })
         .limit(300)
     : { data: null };
-  const appWarnings = [...(warningRows ?? [])].sort(
-    (a, b) =>
-      (a.severity === b.severity ? 0 : a.severity === "critical" ? -1 : 1) ||
-      (a.projects?.name ?? "").localeCompare(b.projects?.name ?? ""),
-  );
-  const criticalCount = appWarnings.filter((w) => w.severity === "critical").length;
+  const appWarnings = [...(warningRows ?? [])].sort((a, b) => (a.projects?.name ?? "").localeCompare(b.projects?.name ?? ""));
 
   const markedFixed = new Map<string, { by: string | null; at: string }>();
   if (fixedBugs?.length) {
@@ -253,25 +251,20 @@ export default async function MyQueuePage() {
         <>
           <h2 className="mb-2 text-sm font-semibold text-red-700">
             App warnings ({appWarnings.length})
-            <span className="ml-1 font-normal text-slate-500">
-              · {criticalCount} critical, checked in the cloud
-            </span>
+            <span className="ml-1 font-normal text-slate-500">· serious problems found on Google Play, for App health</span>
           </h2>
           <ul className="mb-8 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
             {appWarnings.map((w) => (
               <QueueCard
                 key={w.id}
                 id={`w-${w.id}`}
-                tone={w.severity === "critical" ? "red" : "amber"}
+                tone="red"
                 href={w.action_url ?? `/projects/${w.project_id}`}
                 title={w.title}
                 project={w.projects?.name}
                 detail={w.detail}
                 badges={
                   <>
-                    <Badge tone={w.severity === "critical" ? "red" : "amber"}>
-                      {w.severity === "critical" ? "Critical" : "Warning"}
-                    </Badge>
                     <Badge tone="slate">{WARNING_SOURCE[w.source] ?? "Monitor"}</Badge>
                     {!w.active ? <Badge tone="green">Condition cleared</Badge> : null}
                     {w.reopened_count > 0 ? <Badge tone="violet">Back again</Badge> : null}

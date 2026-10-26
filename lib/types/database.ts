@@ -1976,6 +1976,7 @@ export type Database = {
       play_key_delete: { Args: { p_id: string }; Returns: undefined }
       play_key_secret: { Args: { p_id: string }; Returns: Json }
       play_mail_setup: { Args: never; Returns: Json }
+      in_app_health: { Args: never; Returns: boolean }
       assign_project_developer: { Args: { p_project: string; p_developer: string | null; p_area?: string | null }; Returns: number }
       profile_platform: { Args: { p_user: string }; Returns: string }
       user_platform: { Args: never; Returns: string }

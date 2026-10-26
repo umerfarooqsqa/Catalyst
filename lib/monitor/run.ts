@@ -205,7 +205,8 @@ async function portalWarnings(c: Claim, liveVersion: string | null): Promise<War
     const cur = releases?.find((r) => sameVersion(r.version, c.current_version));
     if (!cur?.release_notes_ref) {
       out.push({
-        kind: "no_release_notes", severity: "critical", fingerprint: `portal:no_release_notes:${c.current_version}`,
+        // a QA workflow reminder, not an app problem: listed on Admin -> Google Play, no card (0058)
+        kind: "no_release_notes", severity: "warning", fingerprint: `portal:no_release_notes:${c.current_version}`,
         title: `Version ${c.current_version} has no release notes`,
         detail: "Testing can't start for this version until its release notes are in the portal (start gate).",
         action_url: settings,

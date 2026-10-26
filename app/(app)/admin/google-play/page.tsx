@@ -91,6 +91,8 @@ export default async function GooglePlayAdminPage() {
     supabase.rpc("play_mail_setup"),
     supabase.from("projects").select("id, name").eq("platform", "android").order("name"),
   ]);
+  // who gets the cards, bells and emails: the App health role category (migration 0058)
+  const { data: members } = await supabase.from("profiles").select("full_name").contains("skills", ["app_health"]).order("full_name");
 
   if (!config) {
     return (
@@ -139,7 +141,7 @@ export default async function GooglePlayAdminPage() {
     <div className="space-y-6">
       <PageHeader
         title="Google Play"
-        subtitle="Every warning about each Android app becomes a card in My Queue (admins and QA): Play releases, Android vitals, target API deadlines, portal state and Play Console emails. It runs in the cloud every 5 minutes; nothing depends on a PC."
+        subtitle="Checks every Android app in the cloud every 5 minutes (Play releases, Android vitals, target API deadlines, portal state, Play Console emails). Serious problems become cards in My Queue for the App health role category; everything is listed here."
       />
 
       <Card className="p-4">
@@ -150,6 +152,14 @@ export default async function GooglePlayAdminPage() {
             {apps.size} apps · {(keys ?? []).length} keys
           </span>
         </div>
+        <p className="mb-3 text-xs text-slate-600">
+          Only <b>serious</b> problems become cards, bells and emails, and only for the <b>App health</b> role category:{" "}
+          {(members ?? []).length ? (members ?? []).map((m) => m.full_name).join(", ") : <b className="text-red-600">nobody yet</b>}.{" "}
+          <Link href="/admin/role-categories" className="text-brand-fg hover:underline">
+            Change who&apos;s in it
+          </Link>
+          . Amber warnings and the monitor&apos;s own problems are only listed in History below.
+        </p>
         {!config.enabled ? (
           <p className="mb-3 text-xs text-slate-600">
             Upload the keys first, then turn monitoring on. Until then nothing is checked and nobody is notified.
