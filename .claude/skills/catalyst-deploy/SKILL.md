@@ -58,5 +58,6 @@ Live at `https://catalyst.umerfarooqsqa.workers.dev` (worker `catalyst`). Deploy
   `AUTOMATION_INGEST_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` and `GEMINI_API_KEY` are plaintext inside the deployed script (private to the
   Cloudflare account, but not the Secrets store). `wrangler secret list` shows only `SUPABASE_SERVICE_ROLE_KEY` and `VAPID_PRIVATE_KEY`. The
   automation API works because of the baked value. Proper fix: move `.env.local` aside while building and `wrangler secret put` each
+  - Deployed 2026-10-26 as `6454aba1-a181-4d1d-9774-131c4d64cfe5`: Google Play version mismatch cards in the admin My Queue + `POST /api/automation/play-versions` (migration 0055, **deployed before it was applied**: the Management API token in aktrade's `.env.example` answered 401. Until 0055 exists, My Queue shows no Play section and the route answers 500, which the runner's outbox retries). Rollback: `npx wrangler rollback ccaeed6c-f8b3-436e-9010-358c0cba4805`.
   of the three (plus `RESEND_API_KEY`/`EMAIL_FROM` when email is wanted).
 - Windows builds print an OpenNext "not fully compatible with Windows" warning; the build and deploy still succeeded.

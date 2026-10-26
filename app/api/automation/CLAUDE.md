@@ -99,7 +99,7 @@ Verified live with curl and the Python client against throwaway versions (rows d
   - Only processing/failed rows change. A completed or re-sent (pending) row answers 409, so a stale report can't undo a person's "send again".
 - **`POST requirements` with `document_id`** completes that row instead of inserting a new one. It refuses a row from another project (404) or one already completed (409), and restores the old status if the `base_page` insert fails.
 
-### Google Play versions and the admin My Queue's red cards (2026-10-26, migration 0055; not applied or deployed yet)
+### Google Play versions and the admin My Queue's red cards (2026-10-26, migration 0055; deployed `6454aba1`, migration not applied yet)
 
 - **`POST play-versions`** `{platform: "android", snapshot_date, apps: [{house, package, play_key, reachable, error, live_version, live_code, upcoming_version, upcoming_code, upcoming_track, upcoming_status, upcoming_fraction, checked_at}]}`.
   - The aktrade runner's daily Google Play snapshot (`utils/play_snapshot.py`, read-only Play Developer API). Android only (400 otherwise); upserted per project in `play_versions`, so the runner's outbox may replay it. Returns `{synced, skipped}` (a house with no project is skipped).
