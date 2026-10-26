@@ -590,6 +590,7 @@ export type Database = {
       }
       notifications: {
         Row: {
+          related_warning_id: string | null
           created_at: string
           id: string
           is_read: boolean
@@ -600,6 +601,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          related_warning_id?: string | null
           created_at?: string
           id?: string
           is_read?: boolean
@@ -610,6 +612,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          related_warning_id?: string | null
           created_at?: string
           id?: string
           is_read?: boolean
@@ -722,6 +725,7 @@ export type Database = {
       }
       projects: {
         Row: {
+          android_package: string | null
           /** Generated from name (migration 0046); unique per platform. Never written. */
           name_key: string
           assigned_developer_id: string | null
@@ -739,6 +743,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          android_package?: string | null
           assigned_developer_id?: string | null
           notify_emails?: string[]
           created_at?: string
@@ -754,6 +759,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          android_package?: string | null
           assigned_developer_id?: string | null
           notify_emails?: string[]
           created_at?: string
@@ -1025,8 +1031,334 @@ export type Database = {
           },
         ]
       }
+      app_warnings: {
+        Row: {
+          action_url: string | null
+          active: boolean
+          cleared_at: string | null
+          close_note: string | null
+          closed_at: string | null
+          closed_by: string | null
+          data: Json
+          detail: string | null
+          fingerprint: string
+          first_seen_at: string
+          id: string
+          kind: string
+          last_seen_at: string
+          project_id: string
+          reopened_count: number
+          severity: "critical" | "warning"
+          source: string
+          status: "open" | "closed"
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          action_url?: string | null
+          active?: boolean
+          cleared_at?: string | null
+          close_note?: string | null
+          closed_at?: string | null
+          closed_by?: string | null
+          data?: Json
+          detail?: string | null
+          fingerprint: string
+          first_seen_at?: string
+          id?: string
+          kind: string
+          last_seen_at?: string
+          project_id: string
+          reopened_count?: number
+          severity: "critical" | "warning"
+          source: string
+          status?: "open" | "closed"
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          action_url?: string | null
+          active?: boolean
+          cleared_at?: string | null
+          close_note?: string | null
+          closed_at?: string | null
+          closed_by?: string | null
+          data?: Json
+          detail?: string | null
+          fingerprint?: string
+          first_seen_at?: string
+          id?: string
+          kind?: string
+          last_seen_at?: string
+          project_id?: string
+          reopened_count?: number
+          severity?: "critical" | "warning"
+          source?: string
+          status?: "open" | "closed"
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_warnings_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "app_warnings_closed_by_fkey"
+            columns: ["closed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      app_monitor_checks: {
+        Row: {
+          attempts: number
+          check: "play" | "vitals"
+          claimed_at: string | null
+          created_at: string
+          last_error: string | null
+          last_ok_at: string | null
+          last_run_at: string | null
+          next_due_at: string
+          project_id: string
+        }
+        Insert: {
+          attempts?: number
+          check: "play" | "vitals"
+          claimed_at?: string | null
+          created_at?: string
+          last_error?: string | null
+          last_ok_at?: string | null
+          last_run_at?: string | null
+          next_due_at?: string
+          project_id: string
+        }
+        Update: {
+          attempts?: number
+          check?: "play" | "vitals"
+          claimed_at?: string | null
+          created_at?: string
+          last_error?: string | null
+          last_ok_at?: string | null
+          last_run_at?: string | null
+          next_due_at?: string
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_monitor_checks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      app_monitor_config: {
+        Row: {
+          anr_limit: number
+          crash_limit: number
+          device_limit: number
+          device_min_users: number
+          early_share: number
+          enabled: boolean
+          id: boolean
+          new_crash_min_users: number
+          play_minutes: number
+          stale_minutes: number
+          target_warn_days: number
+          updated_at: string
+          vitals_minutes: number
+          wakelock_limit: number
+        }
+        Insert: {
+          anr_limit?: number
+          crash_limit?: number
+          device_limit?: number
+          device_min_users?: number
+          early_share?: number
+          enabled?: boolean
+          id?: boolean
+          new_crash_min_users?: number
+          play_minutes?: number
+          stale_minutes?: number
+          target_warn_days?: number
+          updated_at?: string
+          vitals_minutes?: number
+          wakelock_limit?: number
+        }
+        Update: {
+          anr_limit?: number
+          crash_limit?: number
+          device_limit?: number
+          device_min_users?: number
+          early_share?: number
+          enabled?: boolean
+          id?: boolean
+          new_crash_min_users?: number
+          play_minutes?: number
+          stale_minutes?: number
+          target_warn_days?: number
+          updated_at?: string
+          vitals_minutes?: number
+          wakelock_limit?: number
+        }
+        Relationships: [
+        ]
+      }
+      target_api_rules: {
+        Row: {
+          applies_to: "updates" | "existing"
+          effective_date: string
+          id: string
+          min_api: number
+          note: string | null
+        }
+        Insert: {
+          applies_to: "updates" | "existing"
+          effective_date: string
+          id?: string
+          min_api: number
+          note?: string | null
+        }
+        Update: {
+          applies_to?: "updates" | "existing"
+          effective_date?: string
+          id?: string
+          min_api?: number
+          note?: string | null
+        }
+        Relationships: [
+        ]
+      }
+      play_keys: {
+        Row: {
+          apps_checked_at: string | null
+          client_email: string
+          created_at: string
+          created_by: string | null
+          gcp_project: string | null
+          id: string
+          last_error: string | null
+          last_ok_at: string | null
+          name: string
+          vault_secret_id: string
+        }
+        Insert: {
+          apps_checked_at?: string | null
+          client_email: string
+          created_at?: string
+          created_by?: string | null
+          gcp_project?: string | null
+          id?: string
+          last_error?: string | null
+          last_ok_at?: string | null
+          name: string
+          vault_secret_id: string
+        }
+        Update: {
+          apps_checked_at?: string | null
+          client_email?: string
+          created_at?: string
+          created_by?: string | null
+          gcp_project?: string | null
+          id?: string
+          last_error?: string | null
+          last_ok_at?: string | null
+          name?: string
+          vault_secret_id?: string
+        }
+        Relationships: [
+        ]
+      }
+      play_key_apps: {
+        Row: {
+          key_id: string
+          package: string
+          seen_at: string
+        }
+        Insert: {
+          key_id: string
+          package: string
+          seen_at?: string
+        }
+        Update: {
+          key_id?: string
+          package?: string
+          seen_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "play_key_apps_key_id_fkey"
+            columns: ["key_id"]
+            isOneToOne: false
+            referencedRelation: "play_keys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      play_emails: {
+        Row: {
+          created_at: string
+          excerpt: string | null
+          id: string
+          message_id: string
+          project_id: string | null
+          received_at: string | null
+          sender: string | null
+          subject: string | null
+          thread_id: string | null
+          warning_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          excerpt?: string | null
+          id?: string
+          message_id: string
+          project_id?: string | null
+          received_at?: string | null
+          sender?: string | null
+          subject?: string | null
+          thread_id?: string | null
+          warning_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          excerpt?: string | null
+          id?: string
+          message_id?: string
+          project_id?: string | null
+          received_at?: string | null
+          sender?: string | null
+          subject?: string | null
+          thread_id?: string | null
+          warning_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "play_emails_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "play_emails_warning_id_fkey"
+            columns: ["warning_id"]
+            isOneToOne: false
+            referencedRelation: "app_warnings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       releases: {
         Row: {
+          target_sdk: number | null
           claimed_bugs: Json
           completed_at: string | null
           discrepancies: Json
@@ -1039,6 +1371,7 @@ export type Database = {
           version: string
         }
         Insert: {
+          target_sdk?: number | null
           claimed_bugs?: Json
           completed_at?: string | null
           discrepancies?: Json
@@ -1051,6 +1384,7 @@ export type Database = {
           version: string
         }
         Update: {
+          target_sdk?: number | null
           claimed_bugs?: Json
           completed_at?: string | null
           discrepancies?: Json
@@ -1614,6 +1948,34 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      app_warnings_sync: {
+        Args: { p_project: string; p_source: string; p_items: Json; p_clear?: boolean }
+        Returns: Json
+      }
+      app_warning_close: { Args: { p_id: string; p_note?: string | null }; Returns: undefined }
+      monitor_claim: {
+        Args: { p_limit?: number }
+        Returns: {
+          project_id: string
+          check: string
+          project_name: string
+          package: string
+          current_version: string | null
+          house_slug: string | null
+          last_ok_at: string | null
+        }[]
+      }
+      monitor_done: {
+        Args: { p_project: string; p_check: string; p_ok: boolean; p_error?: string | null }
+        Returns: undefined
+      }
+      monitor_request: { Args: { p_project: string }; Returns: undefined }
+      monitor_setting: { Args: { p_key: string }; Returns: string }
+      app_monitor_kick: { Args: never; Returns: undefined }
+      play_key_put: { Args: { p_name: string; p_key: Json }; Returns: string }
+      play_key_delete: { Args: { p_id: string }; Returns: undefined }
+      play_key_secret: { Args: { p_id: string }; Returns: Json }
+      play_mail_setup: { Args: never; Returns: Json }
       assign_project_developer: { Args: { p_project: string; p_developer: string | null; p_area?: string | null }; Returns: number }
       profile_platform: { Args: { p_user: string }; Returns: string }
       user_platform: { Args: never; Returns: string }
@@ -1701,6 +2063,7 @@ export type Database = {
         | "comment"
         | "sla_breach"
         | "retest_ready"
+        | "app_warning"
       requirement_doc_status: "pending" | "processing" | "completed" | "failed"
       requirement_status: "draft" | "active" | "deprecated"
       task_status:
@@ -1854,6 +2217,7 @@ export const Constants = {
         "comment",
         "sla_breach",
         "retest_ready",
+        "app_warning",
       ],
       requirement_doc_status: ["pending", "processing", "completed", "failed"],
       requirement_status: ["draft", "active", "deprecated"],

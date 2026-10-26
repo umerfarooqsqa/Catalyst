@@ -41,6 +41,7 @@ export default function NotificationList({
     // the bug or task itself, opened in its project (app/(app)/bugs/[bugId], app/(app)/tasks/[taskId])
     if (n.related_bug_id) return `/bugs/${n.related_bug_id}`;
     if (n.related_task_id) return `/tasks/${n.related_task_id}`;
+    if (n.related_warning_id) return `/my-queue#w-${n.related_warning_id}`; // app warning card (0056)
     return "#";
   }
 

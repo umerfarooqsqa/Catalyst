@@ -51,10 +51,15 @@ export default async function BugsPage({
   // The app versions bugs can be filed under: the project's releases (newest first).
   const { data: releaseRows } = await supabase
     .from("releases")
-    .select("id, version, release_notes_ref")
+    .select("id, version, release_notes_ref, target_sdk")
     .eq("project_id", projectId)
     .order("started_at", { ascending: false });
-  const releases = (releaseRows ?? []).map((r) => ({ id: r.id, version: r.version, hasNotes: !!r.release_notes_ref }));
+  const releases = (releaseRows ?? []).map((r) => ({
+    id: r.id,
+    version: r.version,
+    hasNotes: !!r.release_notes_ref,
+    targetSdk: r.target_sdk,
+  }));
 
   const project = projects.find((p) => p.id === projectId);
   if (!project) notFound();

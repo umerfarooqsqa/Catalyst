@@ -63,6 +63,15 @@ export async function POST(req: Request) {
   }
   try {
     const saved = await saveReleaseNotes(serviceRoleClient(), found.project, { version, text, fileName, file });
+    // optional: the build's target SDK (migration 0056), for the cloud app monitor's target API checks
+    const targetSdk = Number(body?.target_sdk);
+    if (Number.isInteger(targetSdk) && targetSdk >= 1 && targetSdk <= 99) {
+      await serviceRoleClient()
+        .from("releases")
+        .update({ target_sdk: targetSdk })
+        .eq("project_id", found.project.id)
+        .eq("version", version);
+    }
     return NextResponse.json(saved);
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });

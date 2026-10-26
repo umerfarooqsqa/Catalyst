@@ -19,6 +19,7 @@ const I = {
   shield: "M8 1.5 3 3.2V8c0 3 2.2 5.3 5 6.5 2.8-1.2 5-3.5 5-6.5V3.2z",
   clock: "M8 3.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM8 5.5V8l1.8 1",
   tag: "M2.5 2.5h5L14 9l-4.5 4.5L3 7V2.5zM5 5a.6.6 0 1 0 0-1.2A.6.6 0 0 0 5 5z",
+  play: "M5 3.2v9.6L12.5 8z",
 } as const;
 
 function Icon({ d }: { d: string }) {
@@ -172,6 +173,7 @@ export default function Sidebar({
             <NavLink href="/admin/roles" label="Roles" icon="shield" />
             <NavLink href="/admin/role-categories" label="Role categories" icon="users" />
             <NavLink href="/admin/categories" label="Bug categories" icon="tag" />
+            <NavLink href="/admin/google-play" label="Google Play" icon="play" />
             <NavLink href="/admin/audit-log" label="Audit log" icon="clock" />
           </>
         )}

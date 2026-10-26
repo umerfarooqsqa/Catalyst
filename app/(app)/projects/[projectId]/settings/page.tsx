@@ -9,6 +9,7 @@ import {
   addProjectMember,
   removeProjectMember,
   updateProjectPlatform,
+  updateAndroidPackage,
 } from "@/app/(app)/projects/actions";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +28,7 @@ export default async function ProjectSettingsPage({
     await Promise.all([
       supabase
         .from("projects")
-        .select("id, name, house_slug, house_group, platform, current_version, release_notes_ref, notify_emails")
+        .select("id, name, house_slug, house_group, platform, current_version, release_notes_ref, notify_emails, android_package")
         .eq("id", projectId)
         .single(),
       supabase
@@ -203,6 +204,30 @@ export default async function ProjectSettingsPage({
           </form>
         )}
       </Card>
+
+      {project.platform === "android" && (
+        <Card className="mt-6 p-4">
+          <h2 className="mb-1 text-sm font-semibold text-slate-700">Android package</h2>
+          <p className="mb-3 text-xs text-slate-500">
+            The app&apos;s package name on Google Play. With it, catalyst checks this app in the cloud (Play releases,
+            Android vitals, target API deadlines, Play Console emails) and shows every warning as a card in My Queue.
+            See Admin → Google Play.
+          </p>
+          <form action={updateAndroidPackage} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input type="hidden" name="project_id" value={project.id} />
+            <input
+              key={project.android_package ?? "unset"}
+              name="android_package"
+              defaultValue={project.android_package ?? ""}
+              placeholder="com.catalyst.example"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm sm:w-80"
+            />
+            <button className="w-full rounded-md bg-brand px-3 py-2 text-sm font-medium text-white transition active:scale-95 hover:bg-brand-fg sm:w-auto">
+              Save package
+            </button>
+          </form>
+        </Card>
+      )}
 
       {(project.house_slug || project.house_group) && (
         <VersionGateCard

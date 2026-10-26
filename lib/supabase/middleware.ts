@@ -9,6 +9,8 @@ const PUBLIC_PATHS = [
   "/api/push/dispatch", // Supabase webhook — authorized by its own shared secret
   "/api/email/dispatch", // Supabase ping (0044) — sends only what is already queued, within the quota
   "/api/intake/whatsapp", // Grok (0047) — its own key; can only add rows to the review inbox
+  "/api/intake/play-mail", // Google Apps Script (0056) — its own key; Play Console emails become app warnings
+  "/api/monitor/run", // pg_cron ping (0056) — checked against the secret in private.settings
   "/api/automation", // aktrade automation API — authorized by its own shared secret
   "/manifest.webmanifest",
   "/sw.js",

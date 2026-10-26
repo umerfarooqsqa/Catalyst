@@ -177,3 +177,50 @@ export function VerifyFixActions({ bugId }: { bugId: string }) {
     </span>
   );
 }
+
+/**
+ * Close an app warning card (migration 0056, QA/admin). It comes back by itself if the
+ * condition is still true at the next check; the optional note is kept with the card.
+ */
+export function WarningCloseAction({ warningId }: { warningId: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function close() {
+    setBusy(true);
+    setErr(null);
+    const { error } = await createClient().rpc("app_warning_close", { p_id: warningId, p_note: note || null });
+    setBusy(false);
+    if (error) setErr(error.message);
+    else router.refresh();
+  }
+
+  if (!open) {
+    return (
+      <button className={btn} onClick={() => setOpen(true)}>
+        Close…
+      </button>
+    );
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <input
+        className="w-44 rounded-md border border-slate-300 px-2 py-0.5 text-xs"
+        placeholder="Note (optional)"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        autoFocus
+      />
+      <button className={primary} disabled={busy} onClick={close}>
+        Close
+      </button>
+      <button className={btn} disabled={busy} onClick={() => setOpen(false)}>
+        Cancel
+      </button>
+      {err && <span className="text-xs text-red-600">{err}</span>}
+    </span>
+  );
+}

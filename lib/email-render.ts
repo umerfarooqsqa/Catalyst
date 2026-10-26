@@ -27,11 +27,16 @@ const EVENT_LABELS: Record<string, string> = {
   status_change: "Status changed",
   comment: "New comment",
   retest_ready: "Ready for retest",
+  app_warning: "App warning",
 };
 
 const words = (s: string) => s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 const eventLabel = (e: string) => EVENT_LABELS[e] ?? words(e);
 const bugs = (n: number) => `${n} bug${n === 1 ? "" : "s"}`;
+// App warnings (migration 0056) ride the same outbox as critical emails; they are counted as warnings.
+const isWarning = (i: EmailItem) => i.event === "app_warning";
+const counted = (items: EmailItem[]) =>
+  items.every(isWarning) ? `${items.length} warning${items.length === 1 ? "" : "s"}` : bugs(items.length);
 
 function esc(s: string): string {
   return s
@@ -67,6 +72,7 @@ function byProject(items: EmailItem[]): ProjectGroup[] {
 
 function subjectOf(kind: EmailKind, items: EmailItem[], groups: ProjectGroup[]): string {
   const first = items[0];
+  if (kind === "critical" && isWarning(first)) return `[Catalyst] APP WARNING: ${first.title} (${first.project})`;
   if (kind === "critical") return `[Catalyst] CRITICAL: ${first.title} (${first.project})`;
   if (kind === "instant") return `[Catalyst] ${eventLabel(first.event)}: ${first.title} (${first.project})`;
   const where =
@@ -81,6 +87,7 @@ function subjectOf(kind: EmailKind, items: EmailItem[], groups: ProjectGroup[]):
 
 function intro(kind: EmailKind, items: EmailItem[], groups: ProjectGroup[]): string {
   const across = groups.length > 1 ? `, in ${groups.length} projects` : "";
+  if (kind === "critical" && items.every(isWarning)) return "A critical warning about one of your apps needs your attention:";
   if (kind === "critical") return "A critical bug needs your attention:";
   if (kind === "instant") return "A bug you follow changed:";
   if (kind === "digest") return `Your daily summary of ${bugs(items.length)}${across}:`;
@@ -102,7 +109,7 @@ export function renderEmail(kind: EmailKind, items: EmailItem[]): RenderedEmail 
     intro(kind, items, groups),
     "",
     ...groups.flatMap((g) => [
-      `${g.name.toUpperCase()} (${bugs(g.items.length)})`,
+      `${g.name.toUpperCase()} (${counted(g.items)})`,
       `Open project: ${g.link}`,
       "",
       ...g.items.flatMap((i) => [
@@ -130,7 +137,7 @@ export function renderEmail(kind: EmailKind, items: EmailItem[]): RenderedEmail 
         .join("\n");
       return `<table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;margin:0 0 6px">
 <tr>
-  <td style="padding:10px 0 6px;font-size:16px;font-weight:700;color:#0f172a">${esc(g.name)} <span style="font-weight:400;color:#64748b;font-size:13px">· ${bugs(g.items.length)}</span></td>
+  <td style="padding:10px 0 6px;font-size:16px;font-weight:700;color:#0f172a">${esc(g.name)} <span style="font-weight:400;color:#64748b;font-size:13px">· ${counted(g.items)}</span></td>
   <td style="padding:10px 0 6px;text-align:right"><a href="${esc(g.link)}" style="display:inline-block;background:#0f766e;color:#ffffff;text-decoration:none;font-size:13px;font-weight:600;padding:6px 12px;border-radius:6px;white-space:nowrap">Open project &rarr;</a></td>
 </tr>
 </table>

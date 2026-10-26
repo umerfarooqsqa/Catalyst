@@ -120,6 +120,23 @@ export async function updateProjectPlatform(formData: FormData) {
   revalidatePath("/master-library");
 }
 
+/** The Android package name the cloud app monitor checks on Google Play (migration 0056). */
+export async function updateAndroidPackage(formData: FormData) {
+  const { level } = await requireProfile();
+  if (!canAdminister(level)) throw new Error("Not authorized");
+  const project_id = String(formData.get("project_id"));
+  const pkg = String(formData.get("android_package") || "").trim() || null;
+  if (pkg && !/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/.test(pkg)) {
+    throw new Error("A package name looks like com.company.app.");
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.from("projects").update({ android_package: pkg }).eq("id", project_id);
+  if (error) {
+    throw new Error(error.code === "23505" ? "Another project already has this package." : error.message);
+  }
+  revalidatePath(`/projects/${project_id}/settings`);
+}
+
 /**
  * "App versions" panel on the Bugs page (QA/admin): adds a version of this app that
  * bugs can be filed under, and optionally makes it the project's current version (the
@@ -131,6 +148,7 @@ export async function addAppVersion(
   projectId: string,
   rawVersion: string,
   makeCurrent: boolean,
+  targetSdk?: number | null,
 ): Promise<{ error?: string; id?: string; version?: string; existed?: boolean }> {
   const { level } = await requireProfile();
   if (!isManager(level)) return { error: "Only QA or an admin can add app versions." };
@@ -155,11 +173,14 @@ export async function addAppVersion(
   if (!id) {
     const { data: created, error } = await supabase
       .from("releases")
-      .insert({ project_id: projectId, version, notify_emails: project.notify_emails })
+      .insert({ project_id: projectId, version, notify_emails: project.notify_emails, target_sdk: targetSdk ?? null })
       .select("id")
       .single();
     if (error) return { error: error.message };
     id = created.id;
+  } else if (targetSdk) {
+    const { error } = await supabase.from("releases").update({ target_sdk: targetSdk }).eq("id", id);
+    if (error) return { error: error.message };
   }
   if (makeCurrent) {
     const { error } = await supabase.from("projects").update({ current_version: version }).eq("id", projectId);
@@ -167,6 +188,32 @@ export async function addAppVersion(
   }
   revalidatePath(`/projects/${projectId}/bugs`);
   return { id, version, existed: !!existing };
+}
+
+/**
+ * A version's target API level (targetSdkVersion), migration 0056. Google has no API for it,
+ * so the cloud app monitor reads it from here to check Google Play's target API deadlines.
+ * Saving re-checks the app at once (trigger on releases.target_sdk).
+ */
+export async function setVersionTargetSdk(
+  projectId: string,
+  releaseId: string,
+  targetSdk: number | null,
+): Promise<{ error?: string }> {
+  const { level } = await requireProfile();
+  if (!isManager(level)) return { error: "Only QA or an admin can set a version's target SDK." };
+  if (targetSdk !== null && !(Number.isInteger(targetSdk) && targetSdk >= 1 && targetSdk <= 99)) {
+    return { error: "Target SDK is an API level, e.g. 35." };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("releases")
+    .update({ target_sdk: targetSdk })
+    .eq("id", releaseId)
+    .eq("project_id", projectId);
+  if (error) return { error: error.message };
+  revalidatePath(`/projects/${projectId}/bugs`);
+  return {};
 }
 
 /**

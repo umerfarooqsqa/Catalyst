@@ -294,6 +294,7 @@ Core tables (see `/supabase/schema.sql` for full DDL, types, and constraints):
 - `attachments`, `comments` — polymorphic-ish (linked to either a bug or a task, enforced by
   a check constraint, never both)
 - `notifications` — assignment / status_change / comment / sla_breach / retest_ready
+- `app_warnings`, `app_monitor_checks`, `app_monitor_config`, `target_api_rules`, `play_keys` (+ Vault), `play_key_apps`, `play_emails`, `play_versions` — the cloud app monitor (migrations 0055/0056)
 - `sla_settings` — global default thresholds (project_id NULL) + per-project overrides,
   editable by Admins only
 
@@ -482,7 +483,7 @@ affecting the pre-existing bulk-delete too, not just this new button. Fixed in m
 `0024_tasks_linked_bug_set_null_on_delete.sql` (now `ON DELETE SET NULL` — a task outlives the
 bug it referenced, same "historical pointer" treatment as `base_page_id`). Verified: deleting
 a bug with a linked task now succeeds and the task's `linked_bug_id` is nulled, not blocked.
-- **Google Play version cards (2026-10-26, migration 0055):** the runner sends each Android app's Play live/upcoming release daily (`POST play-versions`, table `play_versions`); admins' My Queue shows a red card when an upcoming production release differs from `projects.current_version`, or production is already newer. The verdict is computed on page load (`lib/play-version.ts`). Details: `app/api/automation/CLAUDE.md`.
+- **App warnings (2026-10-26, migration 0056):** every warning about an Android app (Play releases, Android vitals, target API deadlines, portal state, Play Console emails) is checked in the cloud (pg_cron → `/api/monitor/run`, keys in Supabase Vault) and shown as a card in My Queue for admins and QA; a card stays until a person closes it. Set up on Admin → Google Play. Details: `app/api/automation/CLAUDE.md`.
 
 Also added a third delete entry point: a 🗑 icon per row in the Sheet (spreadsheet) view
 (`deleteRow()` in `BugBoard.tsx`, same `confirm()` + `isManager(role)` gate as the drawer's

@@ -80,6 +80,11 @@ export async function POST(req: Request) {
   if (!platform) return badPlatform();
   const houseCol = platform === "android" ? "house_slug" : "house_group";
   const houseValue = platform === "android" ? { house_slug: house } : { house_group: house };
+  // Android package (migration 0056): lets the cloud app monitor check the app on Google Play
+  const pkg = typeof body?.package === "string" && /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/.test(body.package.trim())
+    ? body.package.trim()
+    : null;
+  const pkgValue = platform === "android" && pkg ? { android_package: pkg } : {};
 
   const supabase = serviceRoleClient();
   const cols = "id, name, platform, house_slug, house_group, current_version";
@@ -122,7 +127,7 @@ export async function POST(req: Request) {
     }
     const { data, error } = await supabase
       .from("projects")
-      .update({ ...houseValue, ...(target.current_version || !version ? {} : { current_version: version }) })
+      .update({ ...houseValue, ...pkgValue, ...(target.current_version || !version ? {} : { current_version: version }) })
       .eq("id", target.id)
       .select(cols)
       .single();
@@ -137,6 +142,7 @@ export async function POST(req: Request) {
       description: "Added from the aktrade Development Portal (Add app).",
       platform,
       ...houseValue,
+      ...pkgValue,
       current_version: version,
     })
     .select(cols)

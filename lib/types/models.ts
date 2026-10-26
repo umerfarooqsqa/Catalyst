@@ -103,7 +103,8 @@ export type BugWithJoins = Bug & {
 };
 
 /** A version of the project's app (a release), for choosing which version a bug is in. */
-export type ReleaseOption = { id: string; version: string; hasNotes: boolean };
+/** targetSdk: the version's target API level (migration 0056); null = not entered yet. */
+export type ReleaseOption = { id: string; version: string; hasNotes: boolean; targetSdk?: number | null };
 
 export type TaskWithJoins = Task & {
   assignee: Pick<Profile, "id" | "full_name"> | null;

@@ -66,6 +66,14 @@ export async function POST(req: Request) {
     url = data?.project_id
       ? `/projects/${data.project_id}/tasks?focus=${related_task_id}`
       : "/notifications";
+  } else if (body.notification_id) {
+    // an app warning (0056): the webhook body doesn't carry it, so read it from the notification
+    const { data } = await admin
+      .from("notifications")
+      .select("related_warning_id")
+      .eq("id", body.notification_id)
+      .maybeSingle();
+    if (data?.related_warning_id) url = `/my-queue#w-${data.related_warning_id}`;
   }
 
   const payload: PushPayload = {

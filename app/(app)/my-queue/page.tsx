@@ -8,10 +8,9 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader, Badge, EmptyState, cx } from "@/components/ui";
 import { SEVERITY_LABELS } from "@/lib/severity";
 import { fmtDate, fmtDateTime, titleCase } from "@/lib/format";
-import { BugQueueActions, TaskQueueActions, DelegateSelect, VerifyFixActions } from "@/components/QueueActions";
+import { BugQueueActions, TaskQueueActions, DelegateSelect, VerifyFixActions, WarningCloseAction } from "@/components/QueueActions";
 import type { JuniorOption } from "@/components/QueueActions";
-import { isAdmin, isLeadDeveloper } from "@/lib/permissions";
-import { playVersionMismatch, type PlayMismatch, type PlayVersionRow } from "@/lib/play-version";
+import { isAdmin, isLeadDeveloper, isManager } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -29,8 +28,14 @@ const STATUS_TONE: Record<string, Tone> = {
 };
 const SEVERITY_TONE: Record<string, Tone> = { critical: "red", major: "amber" };
 const PRIORITY_TONE: Record<string, Tone> = { high: "red", medium: "slate", low: "slate" };
-// Google Play release statuses of an upcoming production release (migration 0055).
-const PLAY_STATUS: Record<string, string> = { draft: "Draft", inProgress: "Staged rollout", halted: "Rollout halted" };
+// Where an app warning came from (migration 0056, lib/monitor).
+const WARNING_SOURCE: Record<string, string> = {
+  releases: "Play release",
+  vitals: "Android vitals",
+  target_api: "Target API",
+  portal: "Portal",
+  play_email: "Play email",
+};
 
 function DueChip({ due }: { due: string | null }) {
   if (!due) return <span className="text-[11px] text-slate-400">No due date</span>;
@@ -59,6 +64,8 @@ function QueueCard({
   logged,
   actions,
   tone,
+  id,
+  detail,
 }: {
   badges: ReactNode;
   /** undefined = the card has no due date at all (no chip). */
@@ -69,13 +76,18 @@ function QueueCard({
   /** When the bug was logged (bugs.created_at); tasks pass nothing. */
   logged?: string | null;
   actions: ReactNode;
-  tone?: "red";
+  tone?: "red" | "amber";
+  /** Anchor for links to the card (e.g. a notification's /my-queue#w-<id>). */
+  id?: string;
+  /** A longer explanation under the title (app warnings). */
+  detail?: string | null;
 }) {
   return (
     <li
+      id={id}
       className={cx(
-        "flex flex-col rounded-md border p-3 shadow-card",
-        tone === "red" ? "border-red-300 bg-red-50" : "border-grid-line bg-white",
+        "flex scroll-mt-20 flex-col rounded-md border p-3 shadow-card",
+        tone === "red" ? "border-red-300 bg-red-50" : tone === "amber" ? "border-amber-300 bg-amber-50" : "border-grid-line bg-white",
       )}
     >
       <div className="flex flex-wrap items-center gap-1.5">
@@ -90,6 +102,7 @@ function QueueCard({
         {title}
       </Link>
       {project ? <p className="mt-1 truncate text-xs text-slate-500">{project}</p> : null}
+      {detail ? <p className="mt-1 line-clamp-4 text-xs text-slate-600">{detail}</p> : null}
       {logged ? (
         <p className="mt-0.5 text-xs text-slate-400">
           Logged <LocalTime value={logged} />
@@ -181,25 +194,26 @@ export default async function MyQueuePage() {
         .order("updated_at", { ascending: false })
         .limit(200)
     : { data: null };
-  // Admins: Android apps whose Google Play release doesn't match the version QA is testing
-  // (projects.current_version). The runner sends Play's facts daily (migration 0055); the
-  // verdict is worked out here on every load, so a version change in the portal shows at once.
-  const { data: playRows } = admin
+  // Admins and QA: warnings about each Android app, checked in the cloud every few minutes
+  // (migration 0056, lib/monitor/run.ts). A card stays until QA or an admin closes it; it
+  // comes back if its condition is still true at the next check. Critical first.
+  const qa = isManager(level);
+  const { data: warningRows } = qa
     ? await supabase
-        .from("play_versions")
+        .from("app_warnings")
         .select(
-          "project_id, reachable, live_version, live_code, upcoming_version, upcoming_code, upcoming_track, upcoming_status, upcoming_fraction, checked_at, projects(name, current_version)",
+          "id, project_id, source, kind, severity, title, detail, action_url, active, first_seen_at, cleared_at, reopened_count, projects(name)",
         )
+        .eq("status", "open")
+        .order("last_seen_at", { ascending: false })
+        .limit(300)
     : { data: null };
-  const playMismatches = ((playRows ?? []) as unknown as (PlayVersionRow & {
-    project_id: string;
-    checked_at: string;
-    projects: { name: string; current_version: string | null } | null;
-  })[])
-    .map((r) => ({ row: r, mismatch: playVersionMismatch(r, r.projects?.current_version ?? null) }))
-    .filter((x): x is { row: typeof x.row; mismatch: PlayMismatch } => x.mismatch !== null)
-    .sort((a, b) => (a.row.projects?.name ?? "").localeCompare(b.row.projects?.name ?? ""));
-  const STALE_MS = 2 * 24 * 3600 * 1000;
+  const appWarnings = [...(warningRows ?? [])].sort(
+    (a, b) =>
+      (a.severity === b.severity ? 0 : a.severity === "critical" ? -1 : 1) ||
+      (a.projects?.name ?? "").localeCompare(b.projects?.name ?? ""),
+  );
+  const criticalCount = appWarnings.filter((w) => w.severity === "critical").length;
 
   const markedFixed = new Map<string, { by: string | null; at: string }>();
   if (fixedBugs?.length) {
@@ -235,63 +249,44 @@ export default async function MyQueuePage() {
         }
       />
 
-      {admin && playMismatches.length > 0 ? (
+      {appWarnings.length > 0 ? (
         <>
           <h2 className="mb-2 text-sm font-semibold text-red-700">
-            Android version mismatch on Google Play ({playMismatches.length})
+            App warnings ({appWarnings.length})
+            <span className="ml-1 font-normal text-slate-500">
+              · {criticalCount} critical, checked in the cloud
+            </span>
           </h2>
           <ul className="mb-8 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
-            {playMismatches.map(({ row: r, mismatch: m }) => {
-              const name = r.projects?.name ?? "Project";
-              const tested = r.projects?.current_version;
-              const build = m.code ? ` (build ${m.code})` : "";
-              const fraction = Number(r.upcoming_fraction);
-              const stale = Date.now() - Date.parse(r.checked_at) > STALE_MS;
-              return (
-                <QueueCard
-                  key={r.project_id}
-                  tone="red"
-                  href={`/projects/${r.project_id}`}
-                  title={
-                    m.kind === "upcoming"
-                      ? `${name}: Play is about to ship ${m.play}${build}, but QA is testing ${tested}`
-                      : `${name}: Play already ships ${m.play}${build} to users, but QA tested ${tested}`
-                  }
-                  project={
-                    m.kind === "upcoming"
-                      ? `Upcoming release on the ${r.upcoming_track ?? "production"} track. Test ${m.play}, or set the project's version to it.`
-                      : `This version went live without QA. Test ${m.play} and set the project's version to it.`
-                  }
-                  badges={
-                    <>
-                      <Badge tone="red">Version mismatch</Badge>
-                      {m.kind === "upcoming" ? (
-                        <Badge tone="amber">
-                          {PLAY_STATUS[r.upcoming_status ?? ""] ?? "Upcoming"}
-                          {r.upcoming_fraction != null && Number.isFinite(fraction) ? ` · ${Math.round(fraction * 100)}%` : ""}
-                        </Badge>
-                      ) : (
-                        <Badge tone="red">Live untested</Badge>
-                      )}
-                      {stale ? <Badge tone="slate">Play data is old</Badge> : null}
-                    </>
-                  }
-                  actions={
-                    <>
-                      <span className="text-xs text-slate-500">
-                        Play checked <LocalTime value={r.checked_at} />
-                      </span>
-                      <Link
-                        href={`/projects/${r.project_id}/settings`}
-                        className="text-xs font-medium text-brand-fg hover:underline"
-                      >
-                        Set version
-                      </Link>
-                    </>
-                  }
-                />
-              );
-            })}
+            {appWarnings.map((w) => (
+              <QueueCard
+                key={w.id}
+                id={`w-${w.id}`}
+                tone={w.severity === "critical" ? "red" : "amber"}
+                href={w.action_url ?? `/projects/${w.project_id}`}
+                title={w.title}
+                project={w.projects?.name}
+                detail={w.detail}
+                badges={
+                  <>
+                    <Badge tone={w.severity === "critical" ? "red" : "amber"}>
+                      {w.severity === "critical" ? "Critical" : "Warning"}
+                    </Badge>
+                    <Badge tone="slate">{WARNING_SOURCE[w.source] ?? "Monitor"}</Badge>
+                    {!w.active ? <Badge tone="green">Condition cleared</Badge> : null}
+                    {w.reopened_count > 0 ? <Badge tone="violet">Back again</Badge> : null}
+                  </>
+                }
+                actions={
+                  <>
+                    <WarningCloseAction warningId={w.id} />
+                    <span className="text-xs text-slate-500">
+                      Since <LocalTime value={w.first_seen_at} />
+                    </span>
+                  </>
+                }
+              />
+            ))}
           </ul>
         </>
       ) : null}

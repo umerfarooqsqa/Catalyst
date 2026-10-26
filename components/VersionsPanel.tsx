@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { addAppVersion } from "@/app/(app)/projects/actions";
+import { addAppVersion, setVersionTargetSdk } from "@/app/(app)/projects/actions";
 import { Badge, Button, cx } from "@/components/ui";
 import { SEVERITY_LABELS } from "@/lib/severity";
 import { titleCase } from "@/lib/format";
@@ -40,6 +40,10 @@ export default function VersionsPanel({
   const [adding, setAdding] = useState(false);
   const [newVersion, setNewVersion] = useState("");
   const [makeCurrent, setMakeCurrent] = useState(true);
+  // target SDK (migration 0056): pre-filled from the newest version that has one
+  const [newTarget, setNewTarget] = useState(() => String(releases.find((r) => r.targetSdk)?.targetSdk ?? ""));
+  const [editingTarget, setEditingTarget] = useState<string | null>(null);
+  const [targetDraft, setTargetDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -65,7 +69,12 @@ export default function VersionsPanel({
     setBusy(true);
     setErr(null);
     setMsg(null);
-    const res = await addAppVersion(projectId, newVersion, makeCurrent);
+    const target = newTarget.trim() ? Number(newTarget) : null;
+    if (target !== null && !(Number.isInteger(target) && target >= 1 && target <= 99)) {
+      setBusy(false);
+      return setErr("Target SDK is an API level, e.g. 35.");
+    }
+    const res = await addAppVersion(projectId, newVersion, makeCurrent, target);
     setBusy(false);
     if (res.error) return setErr(res.error);
     setMsg(
@@ -100,6 +109,43 @@ export default function VersionsPanel({
                 v{r.version}
               </button>
               {r.version === currentVersion && <Badge tone="blue">current</Badge>}
+              {editingTarget === r.id ? (
+                <form
+                  className="inline-flex items-center gap-1"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    const res = await setVersionTargetSdk(projectId, r.id, targetDraft.trim() ? Number(targetDraft) : null);
+                    if (res.error) return setErr(res.error);
+                    setEditingTarget(null);
+                    onChanged();
+                  }}
+                >
+                  <input
+                    autoFocus
+                    value={targetDraft}
+                    onChange={(e) => setTargetDraft(e.target.value)}
+                    placeholder="API"
+                    className="w-12 rounded border border-slate-300 px-1 text-xs"
+                  />
+                  <button className="text-xs font-medium text-brand hover:underline">save</button>
+                </form>
+              ) : (
+                <button
+                  disabled={!manager}
+                  onClick={() => {
+                    setTargetDraft(r.targetSdk ? String(r.targetSdk) : "");
+                    setEditingTarget(r.id);
+                  }}
+                  className={cx(
+                    "rounded px-1 text-xs",
+                    r.targetSdk ? "text-slate-500" : "bg-amber-50 text-amber-800",
+                    manager && "hover:underline",
+                  )}
+                  title="Target SDK (targetSdkVersion), used to check Google Play's target API deadlines"
+                >
+                  {r.targetSdk ? `API ${r.targetSdk}` : "API ?"}
+                </button>
+              )}
               <span className="text-xs text-slate-500">
                 {s.total} bug{s.total === 1 ? "" : "s"}
                 {s.total > 0 && (
@@ -149,6 +195,13 @@ export default function VersionsPanel({
             onChange={(e) => setNewVersion(e.target.value)}
             placeholder="e.g. 1.0.8"
             className="w-28 rounded-md border border-slate-300 px-2 py-1"
+          />
+          <input
+            value={newTarget}
+            onChange={(e) => setNewTarget(e.target.value)}
+            placeholder="target SDK, e.g. 35"
+            title="The build's targetSdkVersion: catalyst checks it against Google Play's target API deadlines"
+            className="w-36 rounded-md border border-slate-300 px-2 py-1"
           />
           <label className="flex items-center gap-1 text-xs text-slate-600">
             <input type="checkbox" checked={makeCurrent} onChange={(e) => setMakeCurrent(e.target.checked)} />
