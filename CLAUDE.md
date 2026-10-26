@@ -482,6 +482,7 @@ affecting the pre-existing bulk-delete too, not just this new button. Fixed in m
 `0024_tasks_linked_bug_set_null_on_delete.sql` (now `ON DELETE SET NULL` — a task outlives the
 bug it referenced, same "historical pointer" treatment as `base_page_id`). Verified: deleting
 a bug with a linked task now succeeds and the task's `linked_bug_id` is nulled, not blocked.
+- **Google Play version cards (2026-10-26, migration 0055):** the runner sends each Android app's Play live/upcoming release daily (`POST play-versions`, table `play_versions`); admins' My Queue shows a red card when an upcoming production release differs from `projects.current_version`, or production is already newer. The verdict is computed on page load (`lib/play-version.ts`). Details: `app/api/automation/CLAUDE.md`.
 
 Also added a third delete entry point: a 🗑 icon per row in the Sheet (spreadsheet) view
 (`deleteRow()` in `BugBoard.tsx`, same `confirm()` + `isManager(role)` gate as the drawer's

@@ -99,6 +99,19 @@ Verified live with curl and the Python client against throwaway versions (rows d
   - Only processing/failed rows change. A completed or re-sent (pending) row answers 409, so a stale report can't undo a person's "send again".
 - **`POST requirements` with `document_id`** completes that row instead of inserting a new one. It refuses a row from another project (404) or one already completed (409), and restores the old status if the `base_page` insert fails.
 
+### Google Play versions and the admin My Queue's red cards (2026-10-26, migration 0055; not applied or deployed yet)
+
+- **`POST play-versions`** `{platform: "android", snapshot_date, apps: [{house, package, play_key, reachable, error, live_version, live_code, upcoming_version, upcoming_code, upcoming_track, upcoming_status, upcoming_fraction, checked_at}]}`.
+  - The aktrade runner's daily Google Play snapshot (`utils/play_snapshot.py`, read-only Play Developer API). Android only (400 otherwise); upserted per project in `play_versions`, so the runner's outbox may replay it. Returns `{synced, skipped}` (a house with no project is skipped).
+  - **live** = the production release users get (completed). **upcoming** = a production draft, staged rollout or halted rollout newer than live. Alpha/beta/internal builds are not sent (decided with the user: they made 11 of 13 apps red).
+- **Only facts are stored.** `lib/play-version.ts::playVersionMismatch` works out the problem on every load against `projects.current_version`, mirroring aktrade's `play_snapshot.verdict`:
+  - `upcoming`: an upcoming release of another version (about to reach users untested);
+  - `untested_live`: production already ships a newer version than the portal's;
+  - QA testing a version that isn't on Play yet is normal: nothing.
+- **My Queue (admins only, decided):** a red "Android version mismatch on Google Play (N)" section at the top, shown only when there is at least one. Each card: what Play ships vs what QA is testing, the rollout state, when Play was last checked ("Play data is old" after 2 days), and "Set version" (the project's settings). Changing the project's version there removes the card at the next load.
+- **RLS:** select only, `not is_contributor() and can_see_project(project_id)` like the other automation tables; writes via the service role.
+- **Network failures on the runner** keep the previous facts and are not sent, so a card isn't cleared by a blip; the row's `checked_at` then ages.
+
 ### Bug Library, export and all-bugs routes
 
 - REQ-14 bug-library API built 2026-09-24: `GET /api/automation/bug-library?house&platform[&version]` (read-only, shared secret). It returns `master_bug` rows on that platform's list that have `house_slug = house` or were copied into the house's project (`bugs.base_page_id`). With `version`, it also returns the release status and the REQ-14 **gate** (`lib/regression-gate.ts`, pure function). The gate passes when every bug in `releases.claimed_bugs` (written by `release-notes` via `claimedBugs()`, same matching as the cross-check) has its most recent `test_bug_<id8>` result in this release's `automation_runs.test_results` (sent by `runs` as `tests: [{key, status}]`) equal to `passed`. Unassigned rows are excluded. Migration `0033_req14_claimed_bugs_and_test_results.sql` adds the two jsonb columns. Migration applied and deployed 2026-09-24 as version `1f0f6ad2-6b84-48e1-844b-6b2d14d5f7dc` (previous: `a8641f2d-34a5-4762-8f8f-0bfdb60b4e31`). Verified live with a throwaway release, deleted afterwards. The gate went from "no test run" to "failing" to "passed" as runs were pushed.

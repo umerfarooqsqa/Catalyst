@@ -960,6 +960,71 @@ export type Database = {
           },
         ]
       }
+      play_versions: {
+        Row: {
+          checked_at: string
+          created_at: string
+          error: string | null
+          live_code: number | null
+          live_version: string | null
+          package: string
+          play_key: string | null
+          project_id: string
+          reachable: boolean
+          snapshot_date: string | null
+          upcoming_code: number | null
+          upcoming_fraction: number | null
+          upcoming_status: string | null
+          upcoming_track: string | null
+          upcoming_version: string | null
+          updated_at: string
+        }
+        Insert: {
+          checked_at?: string
+          created_at?: string
+          error?: string | null
+          live_code?: number | null
+          live_version?: string | null
+          package: string
+          play_key?: string | null
+          project_id: string
+          reachable?: boolean
+          snapshot_date?: string | null
+          upcoming_code?: number | null
+          upcoming_fraction?: number | null
+          upcoming_status?: string | null
+          upcoming_track?: string | null
+          upcoming_version?: string | null
+          updated_at?: string
+        }
+        Update: {
+          checked_at?: string
+          created_at?: string
+          error?: string | null
+          live_code?: number | null
+          live_version?: string | null
+          package?: string
+          play_key?: string | null
+          project_id?: string
+          reachable?: boolean
+          snapshot_date?: string | null
+          upcoming_code?: number | null
+          upcoming_fraction?: number | null
+          upcoming_status?: string | null
+          upcoming_track?: string | null
+          upcoming_version?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "play_versions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       releases: {
         Row: {
           claimed_bugs: Json

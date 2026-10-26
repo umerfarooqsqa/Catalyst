@@ -11,6 +11,7 @@ import { fmtDate, fmtDateTime, titleCase } from "@/lib/format";
 import { BugQueueActions, TaskQueueActions, DelegateSelect, VerifyFixActions } from "@/components/QueueActions";
 import type { JuniorOption } from "@/components/QueueActions";
 import { isAdmin, isLeadDeveloper } from "@/lib/permissions";
+import { playVersionMismatch, type PlayMismatch, type PlayVersionRow } from "@/lib/play-version";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,8 @@ const STATUS_TONE: Record<string, Tone> = {
 };
 const SEVERITY_TONE: Record<string, Tone> = { critical: "red", major: "amber" };
 const PRIORITY_TONE: Record<string, Tone> = { high: "red", medium: "slate", low: "slate" };
+// Google Play release statuses of an upcoming production release (migration 0055).
+const PLAY_STATUS: Record<string, string> = { draft: "Draft", inProgress: "Staged rollout", halted: "Rollout halted" };
 
 function DueChip({ due }: { due: string | null }) {
   if (!due) return <span className="text-[11px] text-slate-400">No due date</span>;
@@ -55,23 +58,33 @@ function QueueCard({
   project,
   logged,
   actions,
+  tone,
 }: {
   badges: ReactNode;
-  due: string | null;
+  /** undefined = the card has no due date at all (no chip). */
+  due?: string | null;
   href: string;
   title: string;
   project?: string | null;
   /** When the bug was logged (bugs.created_at); tasks pass nothing. */
   logged?: string | null;
   actions: ReactNode;
+  tone?: "red";
 }) {
   return (
-    <li className="flex flex-col rounded-md border border-grid-line bg-white p-3 shadow-card">
+    <li
+      className={cx(
+        "flex flex-col rounded-md border p-3 shadow-card",
+        tone === "red" ? "border-red-300 bg-red-50" : "border-grid-line bg-white",
+      )}
+    >
       <div className="flex flex-wrap items-center gap-1.5">
         {badges}
-        <span className="ml-auto">
-          <DueChip due={due} />
-        </span>
+        {due !== undefined ? (
+          <span className="ml-auto">
+            <DueChip due={due} />
+          </span>
+        ) : null}
       </div>
       <Link href={href} className="mt-2 line-clamp-3 font-medium leading-snug text-slate-800 hover:text-brand-fg">
         {title}
@@ -168,6 +181,26 @@ export default async function MyQueuePage() {
         .order("updated_at", { ascending: false })
         .limit(200)
     : { data: null };
+  // Admins: Android apps whose Google Play release doesn't match the version QA is testing
+  // (projects.current_version). The runner sends Play's facts daily (migration 0055); the
+  // verdict is worked out here on every load, so a version change in the portal shows at once.
+  const { data: playRows } = admin
+    ? await supabase
+        .from("play_versions")
+        .select(
+          "project_id, reachable, live_version, live_code, upcoming_version, upcoming_code, upcoming_track, upcoming_status, upcoming_fraction, checked_at, projects(name, current_version)",
+        )
+    : { data: null };
+  const playMismatches = ((playRows ?? []) as unknown as (PlayVersionRow & {
+    project_id: string;
+    checked_at: string;
+    projects: { name: string; current_version: string | null } | null;
+  })[])
+    .map((r) => ({ row: r, mismatch: playVersionMismatch(r, r.projects?.current_version ?? null) }))
+    .filter((x): x is { row: typeof x.row; mismatch: PlayMismatch } => x.mismatch !== null)
+    .sort((a, b) => (a.row.projects?.name ?? "").localeCompare(b.row.projects?.name ?? ""));
+  const STALE_MS = 2 * 24 * 3600 * 1000;
+
   const markedFixed = new Map<string, { by: string | null; at: string }>();
   if (fixedBugs?.length) {
     const { data: marks } = await supabase
@@ -201,6 +234,67 @@ export default async function MyQueuePage() {
             : "Everything assigned to you across projects, latest first. Mark bugs fixed and tasks done right here."
         }
       />
+
+      {admin && playMismatches.length > 0 ? (
+        <>
+          <h2 className="mb-2 text-sm font-semibold text-red-700">
+            Android version mismatch on Google Play ({playMismatches.length})
+          </h2>
+          <ul className="mb-8 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+            {playMismatches.map(({ row: r, mismatch: m }) => {
+              const name = r.projects?.name ?? "Project";
+              const tested = r.projects?.current_version;
+              const build = m.code ? ` (build ${m.code})` : "";
+              const fraction = Number(r.upcoming_fraction);
+              const stale = Date.now() - Date.parse(r.checked_at) > STALE_MS;
+              return (
+                <QueueCard
+                  key={r.project_id}
+                  tone="red"
+                  href={`/projects/${r.project_id}`}
+                  title={
+                    m.kind === "upcoming"
+                      ? `${name}: Play is about to ship ${m.play}${build}, but QA is testing ${tested}`
+                      : `${name}: Play already ships ${m.play}${build} to users, but QA tested ${tested}`
+                  }
+                  project={
+                    m.kind === "upcoming"
+                      ? `Upcoming release on the ${r.upcoming_track ?? "production"} track. Test ${m.play}, or set the project's version to it.`
+                      : `This version went live without QA. Test ${m.play} and set the project's version to it.`
+                  }
+                  badges={
+                    <>
+                      <Badge tone="red">Version mismatch</Badge>
+                      {m.kind === "upcoming" ? (
+                        <Badge tone="amber">
+                          {PLAY_STATUS[r.upcoming_status ?? ""] ?? "Upcoming"}
+                          {r.upcoming_fraction != null && Number.isFinite(fraction) ? ` · ${Math.round(fraction * 100)}%` : ""}
+                        </Badge>
+                      ) : (
+                        <Badge tone="red">Live untested</Badge>
+                      )}
+                      {stale ? <Badge tone="slate">Play data is old</Badge> : null}
+                    </>
+                  }
+                  actions={
+                    <>
+                      <span className="text-xs text-slate-500">
+                        Play checked <LocalTime value={r.checked_at} />
+                      </span>
+                      <Link
+                        href={`/projects/${r.project_id}/settings`}
+                        className="text-xs font-medium text-brand-fg hover:underline"
+                      >
+                        Set version
+                      </Link>
+                    </>
+                  }
+                />
+              );
+            })}
+          </ul>
+        </>
+      ) : null}
 
       {admin ? (
         <>
