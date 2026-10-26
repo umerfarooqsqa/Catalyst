@@ -78,7 +78,8 @@ export async function runChecksNow(): Promise<{ error?: string }> {
   const { admin } = await getAdminClient();
   const { error } = await admin.from("app_monitor_checks").update({ next_due_at: new Date().toISOString(), attempts: 0 }).in("check", ["play", "vitals"]);
   if (error) return { error: error.message };
-  await admin.rpc("app_monitor_kick");
+  // one Worker run per check (Cloudflare's per-run request limit, migration 0057); the cron does the rest
+  await Promise.all(Array.from({ length: 8 }, () => admin.rpc("app_monitor_kick")));
   revalidatePath(PAGE);
   return {};
 }

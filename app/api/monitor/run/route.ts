@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
  * The cloud app monitor's worker (migration 0056). pg_cron pings it every 5 minutes, and at
  * once when a version, package or target SDK changes (app_monitor_kick, header
  * x-monitor-secret). The secret lives only in the database (private.settings monitor_secret),
- * so it is checked there. Runs due checks for ~20 s (under pg_net's 30 s timeout) and answers.
+ * so it is checked there. Runs one due check per ping (Cloudflare's per-run request limit).
  */
 export async function POST(req: Request) {
   const given = req.headers.get("x-monitor-secret") ?? "";
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {
-    return NextResponse.json(await runMonitor(20_000));
+    return NextResponse.json(await runMonitor());
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }

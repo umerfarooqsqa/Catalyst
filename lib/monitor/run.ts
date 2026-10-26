@@ -15,7 +15,7 @@ import {
 
 /**
  * The cloud app monitor (migration 0056), run by POST /api/monitor/run when pg_cron pings it.
- * Claims due checks one at a time within a time budget:
+ * Each run does one due check (the sweep starts several runs in parallel):
  *  - 'play'   : Play releases (+ play_versions facts), target API level, portal state;
  *  - 'vitals' : Android vitals from the Play Developer Reporting API.
  * Each source's findings replace that source's previous ones (app_warnings_sync). When Google
@@ -87,10 +87,13 @@ async function refreshKeyApps(key: KeyRow): Promise<void> {
       for (const a of res.apps ?? []) if (a.packageName) packages.push(a.packageName);
       page = res.nextPageToken ?? "";
     } while (page);
-    await supabase.from("play_key_apps").delete().eq("key_id", key.id);
+    // upsert, then drop apps it no longer reaches: parallel runs may list the same key at once
     if (packages.length) {
-      await supabase.from("play_key_apps").insert(packages.map((p) => ({ key_id: key.id, package: p })));
+      await supabase.from("play_key_apps").upsert(packages.map((p) => ({ key_id: key.id, package: p, seen_at: new Date().toISOString() })));
     }
+    const { data: had } = await supabase.from("play_key_apps").select("package").eq("key_id", key.id);
+    const gone = (had ?? []).map((r) => r.package).filter((p) => !packages.includes(p));
+    if (gone.length) await supabase.from("play_key_apps").delete().eq("key_id", key.id).in("package", gone);
     await supabase
       .from("play_keys")
       .update({ apps_checked_at: new Date().toISOString(), last_ok_at: new Date().toISOString(), last_error: null })
@@ -103,46 +106,65 @@ async function refreshKeyApps(key: KeyRow): Promise<void> {
   }
 }
 
+/** At most this many keys are listed or tried per Worker run (Cloudflare allows ~50 requests). */
+const KEYS_PER_RUN = 2;
+
+type KeyFound = { key: KeyRow; token: string } | { error: string; pending?: boolean; noKeys?: boolean };
+
 /**
- * The key for a package: the one play_key_apps maps it to. Keys whose app list is a day old
- * (or never read) are listed again first; if still nothing, each key is tried directly with
- * the Publishing API (works even where the Reporting API isn't enabled yet).
+ * The key for a package: the one play_key_apps maps it to. While some keys haven't listed their
+ * apps yet (or their list is a day old), up to KEYS_PER_RUN of them are listed per run and the
+ * check says "pending" (retried soon, no card). Keys whose listing failed (e.g. the Reporting API
+ * isn't enabled in their project) are tried directly with an edit, again KEYS_PER_RUN at a time.
+ * Only when every key has been listed or tried and none reaches the app is it an error.
  */
-async function keyFor(pkg: string): Promise<{ key: KeyRow; token: string } | { error: string }> {
+async function keyFor(pkg: string): Promise<KeyFound> {
   const supabase = db();
   const { data: keys } = await supabase
     .from("play_keys")
-    .select("id, name, client_email, gcp_project, apps_checked_at");
-  if (!keys?.length) return { error: "No Google Play keys are uploaded (Admin → Google Play)." };
+    .select("id, name, client_email, gcp_project, apps_checked_at, last_error");
+  if (!keys?.length) return { error: "No Google Play keys are uploaded (Admin → Google Play).", noKeys: true };
   const mapped = async () =>
     (await supabase.from("play_key_apps").select("key_id").eq("package", pkg)).data?.map((r) => r.key_id) ?? [];
   let ids = await mapped();
-  if (!ids.length) {
-    const dayAgo = Date.now() - 24 * 3600_000;
-    for (const k of keys) {
-      if (!k.apps_checked_at || Date.parse(k.apps_checked_at) < dayAgo) await refreshKeyApps(k);
-    }
-    ids = await mapped();
-  }
   const errors: string[] = [];
-  for (const k of [...keys.filter((k) => ids.includes(k.id)), ...keys.filter((k) => !ids.includes(k.id))]) {
+  for (const k of keys.filter((k) => ids.includes(k.id))) {
+    try {
+      return { key: k, token: await accessToken(await keyJson(k.id)) };
+    } catch (e) {
+      errors.push(`${k.name}: ${explainGoogleError(e)}`);
+    }
+  }
+  if (errors.length) return { error: `The key for this app failed: ${errors.join("; ")}` };
+
+  const dayAgo = Date.now() - 24 * 3600_000;
+  const unlisted = keys.filter((k) => !k.apps_checked_at || Date.parse(k.apps_checked_at) < dayAgo);
+  for (const k of unlisted.slice(0, KEYS_PER_RUN)) await refreshKeyApps(k);
+  ids = await mapped();
+  const hit = keys.find((k) => ids.includes(k.id));
+  if (hit) return { key: hit, token: await accessToken(await keyJson(hit.id)) };
+  if (unlisted.length > KEYS_PER_RUN) {
+    return { error: "Still listing which apps each key reaches.", pending: true };
+  }
+
+  // keys whose app list couldn't be read: try them directly, a few per run
+  const { data: tried } = await supabase.from("play_keys").select("id, last_error").not("last_error", "is", null);
+  const candidates = keys.filter((k) => tried?.some((t) => t.id === k.id));
+  for (const k of candidates.slice(0, KEYS_PER_RUN)) {
     try {
       const token = await accessToken(await keyJson(k.id));
-      if (!ids.includes(k.id)) {
-        // not listed for this app: prove it can read it before using it
-        const edit = await gcall<{ id: string }>(token, `${PUB}/${pkg}/edits`, { body: {} });
-        await gcall(token, `${PUB}/${pkg}/edits/${edit.id}`, { method: "DELETE" }).catch(() => undefined);
-        await supabase.from("play_key_apps").upsert({ key_id: k.id, package: pkg });
-      }
+      const edit = await gcall<{ id: string }>(token, `${PUB}/${pkg}/edits`, { body: {} });
+      await gcall(token, `${PUB}/${pkg}/edits/${edit.id}`, { method: "DELETE" }).catch(() => undefined);
+      await supabase.from("play_key_apps").upsert({ key_id: k.id, package: pkg });
       return { key: k, token };
-    } catch (e) {
-      if (ids.includes(k.id)) errors.push(`${k.name}: ${explainGoogleError(e)}`);
+    } catch {
+      // this key can't read the app either
     }
   }
   return {
-    error: errors.length
-      ? `The key for this app failed: ${errors.join("; ")}`
-      : "None of the uploaded keys can read this app. Invite a key's service account in this app's Play Console (Users and permissions, View app information).",
+    error:
+      "None of the uploaded keys can read this app. Invite a key's service account in this app's Play Console " +
+      "(Users and permissions, View app information), or upload the key of the developer account that owns it.",
   };
 }
 
@@ -216,6 +238,9 @@ async function checkPlay(c: Claim, cfg: Config): Promise<string | null> {
   const found = await keyFor(c.package);
   let liveVersion: string | null = null;
   let problem: string | null = null;
+  if ("error" in found && (found.pending || found.noKeys)) {
+    throw new Error(found.error); // retried soon; not a card: nothing is wrong with the app
+  }
   if ("error" in found) {
     await sync(c.project_id, "monitor_play", [{
       kind: "no_play_access", severity: "critical", fingerprint: "monitor:no_play_access",
@@ -311,6 +336,9 @@ async function queryDay(token: string, pkg: string, set: string, end: Ymd, metri
 async function checkVitals(c: Claim, cfg: Config): Promise<string | null> {
   const supabase = db();
   const found = await keyFor(c.package);
+  if ("error" in found && (found.pending || found.noKeys)) {
+    throw new Error(found.error);
+  }
   if ("error" in found) {
     await sync(c.project_id, "monitor_vitals", [{
       kind: "no_vitals_access", severity: "critical", fingerprint: "monitor:no_vitals_access",
@@ -442,27 +470,28 @@ async function checkVitals(c: Claim, cfg: Config): Promise<string | null> {
 
 // ── the loop ───────────────────────────────────────────────────────────────────────────────
 
-export async function runMonitor(budgetMs = 20_000): Promise<{ done: { project: string; check: string; ok: boolean; note: string | null }[] }> {
-  const started = Date.now();
+/**
+ * Runs ONE due check. Cloudflare allows ~50 outgoing requests per Worker invocation and a check
+ * needs ~20-25, so the sweep pings the Worker once per due check instead (migration 0057).
+ */
+export async function runMonitor(): Promise<{ done: { project: string; check: string; ok: boolean; note: string | null }[] }> {
   const supabase = db();
   const done: { project: string; check: string; ok: boolean; note: string | null }[] = [];
   const { data: cfg } = await supabase.from("app_monitor_config").select("*").maybeSingle();
   if (!cfg?.enabled) return { done };
-  while (Date.now() - started < budgetMs) {
-    const { data: claims, error } = await supabase.rpc("monitor_claim", { p_limit: 1 });
-    if (error) throw new Error(error.message);
-    const c = (claims as Claim[] | null)?.[0];
-    if (!c) break;
-    let note: string | null = null;
-    let ok = true;
-    try {
-      note = c.check === "vitals" ? await checkVitals(c, cfg as Config) : await checkPlay(c, cfg as Config);
-    } catch (e) {
-      ok = false;
-      note = e instanceof Error ? e.message : String(e);
-    }
-    await supabase.rpc("monitor_done", { p_project: c.project_id, p_check: c.check, p_ok: ok, p_error: note ?? undefined });
-    done.push({ project: c.project_name, check: c.check, ok, note });
+  const { data: claims, error } = await supabase.rpc("monitor_claim", { p_limit: 1 });
+  if (error) throw new Error(error.message);
+  const c = (claims as Claim[] | null)?.[0];
+  if (!c) return { done };
+  let note: string | null = null;
+  let ok = true;
+  try {
+    note = c.check === "vitals" ? await checkVitals(c, cfg as Config) : await checkPlay(c, cfg as Config);
+  } catch (e) {
+    ok = false;
+    note = e instanceof Error ? e.message : String(e);
   }
+  await supabase.rpc("monitor_done", { p_project: c.project_id, p_check: c.check, p_ok: ok, p_error: note ?? undefined });
+  done.push({ project: c.project_name, check: c.check, ok, note });
   return { done };
 }
