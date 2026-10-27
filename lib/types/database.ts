@@ -725,6 +725,7 @@ export type Database = {
       }
       projects: {
         Row: {
+          added_from_play: boolean
           android_package: string | null
           /** Generated from name (migration 0046); unique per platform. Never written. */
           name_key: string
@@ -743,6 +744,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          added_from_play?: boolean
           android_package?: string | null
           assigned_developer_id?: string | null
           notify_emails?: string[]
@@ -759,6 +761,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          added_from_play?: boolean
           android_package?: string | null
           assigned_developer_id?: string | null
           notify_emails?: string[]
@@ -964,6 +967,37 @@ export type Database = {
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
+        ]
+      }
+      play_builds: {
+        Row: {
+          error: string | null
+          min_sdk: number | null
+          package: string
+          read_at: string
+          target_sdk: number | null
+          version_code: number
+          version_name: string | null
+        }
+        Insert: {
+          error?: string | null
+          min_sdk?: number | null
+          package: string
+          read_at?: string
+          target_sdk?: number | null
+          version_code: number
+          version_name?: string | null
+        }
+        Update: {
+          error?: string | null
+          min_sdk?: number | null
+          package?: string
+          read_at?: string
+          target_sdk?: number | null
+          version_code?: number
+          version_name?: string | null
+        }
+        Relationships: [
         ]
       }
       play_versions: {
@@ -1215,6 +1249,7 @@ export type Database = {
         Row: {
           applies_to: "updates" | "existing"
           effective_date: string
+          extended_to: string | null
           id: string
           min_api: number
           note: string | null
@@ -1222,6 +1257,7 @@ export type Database = {
         Insert: {
           applies_to: "updates" | "existing"
           effective_date: string
+          extended_to?: string | null
           id?: string
           min_api: number
           note?: string | null
@@ -1229,6 +1265,7 @@ export type Database = {
         Update: {
           applies_to?: "updates" | "existing"
           effective_date?: string
+          extended_to?: string | null
           id?: string
           min_api?: number
           note?: string | null
@@ -1278,16 +1315,22 @@ export type Database = {
       }
       play_key_apps: {
         Row: {
+          adopt_error: string | null
+          adopt_tried_at: string | null
           key_id: string
           package: string
           seen_at: string
         }
         Insert: {
+          adopt_error?: string | null
+          adopt_tried_at?: string | null
           key_id: string
           package: string
           seen_at?: string
         }
         Update: {
+          adopt_error?: string | null
+          adopt_tried_at?: string | null
           key_id?: string
           package?: string
           seen_at?: string
@@ -1953,6 +1996,8 @@ export type Database = {
         Returns: Json
       }
       app_warning_close: { Args: { p_id: string; p_note?: string | null }; Returns: undefined }
+      play_app_claim: { Args: Record<string, never>; Returns: { package: string; key_id: string }[] }
+      play_app_adopt: { Args: { p_package: string; p_title: string }; Returns: string }
       monitor_claim: {
         Args: { p_limit?: number }
         Returns: {

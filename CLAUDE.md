@@ -294,7 +294,7 @@ Core tables (see `/supabase/schema.sql` for full DDL, types, and constraints):
 - `attachments`, `comments` — polymorphic-ish (linked to either a bug or a task, enforced by
   a check constraint, never both)
 - `notifications` — assignment / status_change / comment / sla_breach / retest_ready
-- `app_warnings`, `app_monitor_checks`, `app_monitor_config`, `target_api_rules`, `play_keys` (+ Vault), `play_key_apps`, `play_emails`, `play_versions` — the cloud app monitor (migrations 0055/0056)
+- `app_warnings`, `app_monitor_checks`, `app_monitor_config`, `target_api_rules`, `play_keys` (+ Vault), `play_key_apps`, `play_emails`, `play_versions`, `play_builds` — the cloud app monitor (migrations 0055/0056/0059)
 - `sla_settings` — global default thresholds (project_id NULL) + per-project overrides,
   editable by Admins only
 

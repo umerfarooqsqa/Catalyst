@@ -1,5 +1,6 @@
 import "server-only";
 import { serviceRoleClient } from "@/lib/supabase/admin";
+import { readBuildSdk, type BuildSdk } from "@/lib/monitor/apk";
 import { accessToken, explainGoogleError, gcall, GoogleError, type ServiceAccountKey } from "@/lib/monitor/google";
 import {
   rateWarning,
@@ -7,9 +8,11 @@ import {
   releaseWarnings,
   sameVersion,
   targetApiWarnings,
+  type ReleaseFact,
   type ReleaseSummary,
   type TargetRule,
   type TrackRelease,
+  type VersionTarget,
   type Warning,
 } from "@/lib/monitor/rules";
 
@@ -186,6 +189,41 @@ async function playReleases(token: string, pkg: string) {
   }
 }
 
+/**
+ * Reads the SDK levels of the live and upcoming builds from Play (lib/monitor/apk.ts) into
+ * play_builds, once per build; a failed read is retried after a day.
+ */
+async function readBuilds(token: string, pkg: string, facts: (ReleaseFact | null)[]) {
+  const supabase = db();
+  const wanted = facts.filter((f): f is ReleaseFact & { code: number } => !!f?.code);
+  if (!wanted.length) return;
+  const { data: known } = await supabase
+    .from("play_builds")
+    .select("version_code, target_sdk, read_at")
+    .eq("package", pkg)
+    .in("version_code", wanted.map((f) => f.code));
+  const dayAgo = Date.now() - 24 * 3600_000;
+  for (const f of wanted) {
+    const row = known?.find((k) => k.version_code === f.code);
+    if (row && (row.target_sdk !== null || Date.parse(row.read_at) > dayAgo)) continue;
+    let sdk: BuildSdk | null = null;
+    let error: string | null = null;
+    try {
+      sdk = await readBuildSdk(token, pkg, f.code);
+    } catch (e) {
+      // Play answers 404 "App Bundle version code could not be found" for a build uploaded as an APK
+      error =
+        e instanceof GoogleError && e.status === 404 && /app bundle/i.test(e.message)
+          ? "the build was uploaded as an APK, not an app bundle, so Play has no copy to read it from"
+          : explainGoogleError(e);
+    }
+    await supabase.from("play_builds").upsert({
+      package: pkg, version_code: f.code, version_name: f.version,
+      min_sdk: sdk?.minSdk ?? null, target_sdk: sdk?.targetSdk ?? null, error, read_at: new Date().toISOString(),
+    });
+  }
+}
+
 async function portalWarnings(c: Claim, liveVersion: string | null): Promise<Warning[]> {
   const supabase = db();
   const out: Warning[] = [];
@@ -266,9 +304,21 @@ async function checkPlay(c: Claim, cfg: Config): Promise<string | null> {
         },
         { onConflict: "project_id" },
       );
+      await readBuilds(found.token, c.package, [facts.live, facts.upcoming]);
       await sync(c.project_id, "releases", releaseWarnings(facts, lifecycle, c.current_version, c.project_id));
       await sync(c.project_id, "monitor_play", []);
     } catch (e) {
+      if (e instanceof GoogleError && /app is suspended/i.test(e.message)) {
+        // Play's API refuses every read of a suspended app: that refusal is the warning
+        await sync(c.project_id, "releases", [{
+          kind: "app_suspended", severity: "critical", fingerprint: "policy:suspended",
+          title: "App is suspended on Google Play",
+          detail: "Google Play suspended this app: users can't install or update it. Play Console's Policy status page says why and how to appeal.",
+        }]);
+        await sync(c.project_id, "monitor_play", []);
+        await sync(c.project_id, "portal", []);
+        return null;
+      }
       problem = explainGoogleError(e);
       await sync(c.project_id, "monitor_play", [{
         kind: "play_error", severity: "critical", fingerprint: "monitor:play_error",
@@ -277,24 +327,36 @@ async function checkPlay(c: Claim, cfg: Config): Promise<string | null> {
     }
   }
 
-  const [{ data: rules }, { data: versions }] = await Promise.all([
-    supabase.from("target_api_rules").select("applies_to, min_api, effective_date, note"),
+  const [{ data: rules }, { data: versions }, { data: builds }] = await Promise.all([
+    supabase.from("target_api_rules").select("applies_to, min_api, effective_date, extended_to, note"),
     supabase.from("releases").select("version, target_sdk").eq("project_id", c.project_id),
+    supabase.from("play_builds").select("version_code, version_name, target_sdk, error").eq("package", c.package),
   ]);
-  const targetOf = (v: string | null) => (v ? versions?.find((r) => sameVersion(r.version, v))?.target_sdk ?? null : null);
+  // Play's copy of the build wins (it is what users get); the portal's entry is the fallback
+  const targetOf = (v: string | null): VersionTarget | null => {
+    if (!v) return null;
+    const play = (builds ?? [])
+      .filter((b) => sameVersion(b.version_name, v))
+      .sort((a, b) => b.version_code - a.version_code)[0];
+    if (play?.target_sdk) return { version: v, target: play.target_sdk, fromPlay: true };
+    const entered = versions?.find((r) => sameVersion(r.version, v))?.target_sdk ?? null;
+    return { version: v, target: entered, readError: entered === null ? play?.error ?? null : null };
+  };
   await sync(
     c.project_id,
     "target_api",
     targetApiWarnings({
       rules: (rules ?? []) as TargetRule[],
       today: new Date().toISOString().slice(0, 10),
-      live: liveVersion ? { version: liveVersion, target: targetOf(liveVersion) } : null,
-      upcoming: c.current_version ? { version: c.current_version, target: targetOf(c.current_version) } : null,
+      live: targetOf(liveVersion),
+      upcoming: targetOf(c.current_version),
       warnDays: cfg.target_warn_days,
       projectId: c.project_id,
     }),
   );
-  await sync(c.project_id, "portal", await portalWarnings(c, liveVersion));
+  // a project added from Play (0059) has no versions or notes in the portal: nothing to check there
+  const { data: proj } = await supabase.from("projects").select("added_from_play").eq("id", c.project_id).maybeSingle();
+  await sync(c.project_id, "portal", proj?.added_from_play ? [] : await portalWarnings(c, liveVersion));
   return problem;
 }
 
@@ -469,6 +531,50 @@ async function checkVitals(c: Claim, cfg: Config): Promise<string | null> {
   return notes.length ? notes.join("; ") : null;
 }
 
+// ── apps with no project yet (0059) ────────────────────────────────────────────────────────
+
+/** The app's Play Store name (its default-language listing title). */
+async function playTitle(token: string, pkg: string): Promise<string | null> {
+  const edit = await gcall<{ id: string }>(token, `${PUB}/${pkg}/edits`, { body: {} });
+  try {
+    const details = await gcall<{ defaultLanguage?: string }>(token, `${PUB}/${pkg}/edits/${edit.id}/details`);
+    if (!details.defaultLanguage) return null;
+    const listing = await gcall<{ title?: string }>(token, `${PUB}/${pkg}/edits/${edit.id}/listings/${details.defaultLanguage}`);
+    return listing.title?.trim() || null;
+  } finally {
+    await gcall(token, `${PUB}/${pkg}/edits/${edit.id}`, { method: "DELETE" }).catch(() => undefined);
+  }
+}
+
+/**
+ * Decided with the user (2026-10-27): every app the keys reach is watched, and one that no
+ * project has gets its own project (play_app_adopt links it to a same-named Android project
+ * that has no app yet, else creates one). One app per Worker run. A network or Google outage
+ * leaves it for an hour later; an app Play won't describe (suspended, no access) is still added,
+ * under its package name, so its warnings show.
+ */
+async function adoptOne(): Promise<{ project: string; check: string; ok: boolean; note: string | null } | null> {
+  const supabase = db();
+  const { data: picked } = await supabase.rpc("play_app_claim");
+  const app = (picked as { package: string; key_id: string }[] | null)?.[0];
+  if (!app) return null;
+  let title: string | null = null;
+  let note: string | null = null;
+  try {
+    title = await playTitle(await accessToken(await keyJson(app.key_id)), app.package);
+  } catch (e) {
+    note = explainGoogleError(e);
+    if (!(e instanceof GoogleError) || e.status === 0 || e.status === 429 || e.status >= 500) {
+      await supabase.from("play_key_apps").update({ adopt_error: note }).eq("key_id", app.key_id).eq("package", app.package);
+      return { project: app.package, check: "adopt", ok: false, note };
+    }
+  }
+  const { error } = await supabase.rpc("play_app_adopt", { p_package: app.package, p_title: title ?? app.package });
+  if (error) note = error.message;
+  await supabase.from("play_key_apps").update({ adopt_error: error ? note : null }).eq("key_id", app.key_id).eq("package", app.package);
+  return { project: title ?? app.package, check: "adopt", ok: !error, note };
+}
+
 // ── the loop ───────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -480,6 +586,8 @@ export async function runMonitor(): Promise<{ done: { project: string; check: st
   const done: { project: string; check: string; ok: boolean; note: string | null }[] = [];
   const { data: cfg } = await supabase.from("app_monitor_config").select("*").maybeSingle();
   if (!cfg?.enabled) return { done };
+  const adopted = await adoptOne();
+  if (adopted) return { done: [adopted] }; // its own run: adopting and checking won't both fit
   const { data: claims, error } = await supabase.rpc("monitor_claim", { p_limit: 1 });
   if (error) throw new Error(error.message);
   const c = (claims as Claim[] | null)?.[0];

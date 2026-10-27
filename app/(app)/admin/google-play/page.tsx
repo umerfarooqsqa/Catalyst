@@ -73,13 +73,15 @@ export default async function GooglePlayAdminPage() {
     { data: history },
     { data: setup },
     { data: projects },
+    { data: liveBuilds },
+    { data: builds },
   ] = await Promise.all([
     supabase.from("app_monitor_config").select("*").maybeSingle(),
     supabase.from("play_keys").select("id, name, client_email, gcp_project, apps_checked_at, last_ok_at, last_error").order("name"),
     supabase.from("play_key_apps").select("key_id, package"),
     supabase
       .from("app_monitor_checks")
-      .select("project_id, check, next_due_at, last_ok_at, last_error, projects(name, android_package)")
+      .select("project_id, check, next_due_at, last_ok_at, last_error, projects(name, android_package, added_from_play)")
       .order("project_id"),
     supabase.from("target_api_rules").select("*").order("effective_date"),
     supabase.from("play_emails").select("id, received_at, sender, subject, project_id, warning_id, projects(name)").order("created_at", { ascending: false }).limit(30),
@@ -90,6 +92,8 @@ export default async function GooglePlayAdminPage() {
       .limit(100),
     supabase.rpc("play_mail_setup"),
     supabase.from("projects").select("id, name").eq("platform", "android").order("name"),
+    supabase.from("play_versions").select("project_id, live_version, live_code"),
+    supabase.from("play_builds").select("package, version_code, target_sdk, error"),
   ]);
   // who gets the cards, bells and emails: the App health role category (migration 0058)
   const { data: members } = await supabase.from("profiles").select("full_name").contains("skills", ["app_health"]).order("full_name");
@@ -107,12 +111,39 @@ export default async function GooglePlayAdminPage() {
   const appsOfKey = (id: string) => (keyApps ?? []).filter((a) => a.key_id === id).length;
   const keyOfPackage = (pkg: string | null | undefined) =>
     (keyApps ?? []).filter((a) => a.package === pkg).map((a) => keyName.get(a.key_id)).join(", ");
-  const apps = new Map<string, { name: string; pkg: string | null; play?: (typeof checks & object)[number]; vitals?: (typeof checks & object)[number] }>();
+  const apps = new Map<string, { name: string; pkg: string | null; fromPlay: boolean; play?: (typeof checks & object)[number]; vitals?: (typeof checks & object)[number] }>();
   for (const c of checks ?? []) {
-    const row = apps.get(c.project_id) ?? { name: c.projects?.name ?? "?", pkg: c.projects?.android_package ?? null };
+    const row = apps.get(c.project_id) ?? {
+      name: c.projects?.name ?? "?",
+      pkg: c.projects?.android_package ?? null,
+      fromPlay: !!c.projects?.added_from_play,
+    };
     row[c.check as "play" | "vitals"] = c;
     apps.set(c.project_id, row);
   }
+  // the live build and its target SDK as read from Play (migration 0059)
+  const liveOf = (id: string, pkg: string | null) => {
+    const live = (liveBuilds ?? []).find((v) => v.project_id === id);
+    if (!live?.live_code) return <span className="text-slate-400">not live</span>;
+    const b = (builds ?? []).find((x) => x.package === pkg && x.version_code === live.live_code);
+    return (
+      <div>
+        {live.live_version ?? "?"} <span className="text-slate-400">(build {live.live_code})</span>
+        <div>
+          {b?.target_sdk ? (
+            <span className={rules?.some((r) => r.applies_to === "existing" && r.effective_date <= today && b.target_sdk! < r.min_api) ? "font-semibold text-red-600" : ""}>
+              API {b.target_sdk}
+            </span>
+          ) : (
+            <span className="text-amber-700" title={b?.error ?? undefined}>
+              {b?.error ? "target SDK unknown" : "not read yet"}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
+  const today = new Date().toISOString().slice(0, 10);
   const s = (setup ?? {}) as { key?: string; monitor_url?: string };
   const origin = (() => {
     try {
@@ -214,6 +245,7 @@ export default async function GooglePlayAdminPage() {
               <tr>
                 <th className={th}>App</th>
                 <th className={th}>Key</th>
+                <th className={th}>Live on Play</th>
                 <th className={th}>Play, target API, portal</th>
                 <th className={th}>Android vitals</th>
               </tr>
@@ -228,8 +260,10 @@ export default async function GooglePlayAdminPage() {
                         {a.name}
                       </Link>
                       <div className="text-slate-400">{a.pkg}</div>
+                      {a.fromPlay ? <Badge tone="slate">added from Play</Badge> : null}
                     </td>
                     <td className={td}>{keyOfPackage(a.pkg) || <span className="text-slate-400">none yet</span>}</td>
+                    <td className={td}>{liveOf(id, a.pkg)}</td>
                     <td className={td}>{status(a.play)}</td>
                     <td className={td}>{status(a.vitals)}</td>
                   </tr>
@@ -239,7 +273,9 @@ export default async function GooglePlayAdminPage() {
         </div>
         <p className="mt-2 text-xs text-slate-500">
           An app is checked when its project is Android and has a package (project Settings). The key for each app is found
-          by itself.
+          by itself. Every other app the keys reach gets a project by itself (&quot;added from Play&quot;). The target SDK is read
+          from Play&apos;s copy of the live build; apps uploaded as plain APKs can&apos;t be read and show &quot;target SDK
+          unknown&quot;.
         </p>
       </Card>
 
@@ -252,7 +288,7 @@ export default async function GooglePlayAdminPage() {
         <h2 className="mb-1 text-sm font-semibold text-slate-700">Target API level rules</h2>
         <p className="mb-3 text-xs text-slate-500">
           Google&apos;s requirements (Play Console Help, &quot;Target API level requirements&quot;). Add the next rule when Google
-          announces it. Each app version&apos;s target SDK is entered in the portal, because Google has no API for it.
+          announces it. Each live build&apos;s target SDK is read from Google Play; the portal&apos;s entry is the fallback.
         </p>
         <table className="mb-4 w-full">
           <thead>
@@ -267,7 +303,10 @@ export default async function GooglePlayAdminPage() {
           <tbody>
             {(rules ?? []).map((r) => (
               <tr key={r.id} className="border-t border-grid-line">
-                <td className={td}>{r.effective_date}</td>
+                <td className={td}>
+                  {r.effective_date}
+                  {r.extended_to ? <div className="text-slate-400">extension to {r.extended_to}</div> : null}
+                </td>
                 <td className={td}>{r.applies_to === "updates" ? "New apps and updates" : "Existing apps"}</td>
                 <td className={td}>{r.min_api}</td>
                 <td className={td}>{r.note}</td>

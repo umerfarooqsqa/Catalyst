@@ -6,7 +6,8 @@
  *    don't count); red when its version differs from the version QA is testing, or when
  *    production is already newer than that version (it went live without QA);
  *  - stability: amber at early_share of Google's bad-behaviour limit, red over it;
- *  - target SDK comes from the portal (releases.target_sdk): no Google API returns it.
+ *  - target SDK: read from Play's copy of each build (lib/monitor/apk.ts, 0059), else from the
+ *    portal (releases.target_sdk). No Google API field returns it.
  */
 
 export type Severity = "critical" | "warning";
@@ -141,8 +142,15 @@ export function releaseWarnings(
 
 // ── target API level ──────────────────────────────────────────────────────────────────────
 
-export type TargetRule = { applies_to: "updates" | "existing"; min_api: number; effective_date: string; note?: string | null };
-export type VersionTarget = { version: string; target: number | null };
+export type TargetRule = {
+  applies_to: "updates" | "existing";
+  min_api: number;
+  effective_date: string;
+  extended_to?: string | null; // Google's extension (2026: updates until Nov 1)
+  note?: string | null;
+};
+/** fromPlay: read from Play's copy of the build (0059); readError: why Play couldn't give it. */
+export type VersionTarget = { version: string; target: number | null; fromPlay?: boolean; readError?: string | null };
 
 function ruleState(rules: TargetRule[], appliesTo: TargetRule["applies_to"], today: string) {
   const mine = rules.filter((r) => r.applies_to === appliesTo).sort((a, b) => a.effective_date.localeCompare(b.effective_date));
@@ -152,9 +160,24 @@ function ruleState(rules: TargetRule[], appliesTo: TargetRule["applies_to"], tod
 }
 const daysBetween = (from: string, to: string) => Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
 
+/** 36 -> "Android 16 (API level 36)", as Play Console words it. */
+export const androidName = (api: number) => (api >= 29 ? `Android ${api - 20} (API level ${api})` : `API level ${api}`);
+/** "2026-11-01" -> "Nov 1, 2026". */
+export const dayText = (ymd: string) =>
+  new Date(`${ymd.slice(0, 10)}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
 /**
- * live: the version users have (its target SDK from the portal); upcoming: the version QA is
- * testing, which will be the next update. today: "YYYY-MM-DD".
+ * The target-API part of Play Console's Policy status, worked out from the rules (Google has no
+ * API for that page). live: the version users have; upcoming: the version QA is testing, which
+ * will be the next update. Targets come from Play's copy of the build when it can be read, else
+ * from the portal. today: "YYYY-MM-DD". Cards use Play Console's own wording:
+ *  - "App not available to new users on Android versions higher than your target API level"
+ *    (live below the rule for existing apps);
+ *  - "App updates with this target API level will be rejected" (live below the rule for
+ *    updates: the next update must be raised), with Google's extension date as "Fix by";
+ *  - the version QA is testing is below the rule for updates (Play would refuse it);
+ *  - a coming deadline within warnDays (amber).
  */
 export function targetApiWarnings(opts: {
   rules: TargetRule[];
@@ -169,51 +192,81 @@ export function targetApiWarnings(opts: {
   const url = `/projects/${projectId}/bugs`;
   const missing = (v: VersionTarget, which: string): Warning => ({
     kind: "target_sdk_missing", severity: "warning", fingerprint: `target:missing:${v.version}`,
-    title: `Target SDK isn't entered for ${which} version ${v.version}`,
-    detail: "Google has no API for an app's target SDK, so catalyst reads it from the version. Add it in App versions on the Bugs page (or with the release notes).",
+    title: `Target SDK unknown for ${which} version ${v.version}`,
+    detail: v.readError
+      ? `Google Play couldn't give it (${v.readError}). Enter it in App versions on the Bugs page (or with the release notes).`
+      : "It is read from Google Play once the build is on Play; until then, enter it in App versions on the Bugs page (or with the release notes).",
     action_url: url,
   });
-  const check = (v: VersionTarget, appliesTo: TargetRule["applies_to"], which: string) => {
-    const { inForce, next } = ruleState(rules, appliesTo, today);
-    if (v.target === null) return;
-    if (inForce && v.target < inForce.min_api) {
-      out.push(
-        appliesTo === "existing"
-          ? {
-              kind: "target_api", severity: "critical", fingerprint: `target:existing:${v.version}:${inForce.min_api}`,
-              title: `${which[0].toUpperCase() + which.slice(1)} version ${v.version} targets API ${v.target}: new users on newer Android can't install it`,
-              detail: `${inForce.note ?? ""} Required since ${inForce.effective_date}: API ${inForce.min_api} or higher. Publish an update that targets API ${inForce.min_api}+.`.trim(),
-              action_url: url, data: { target: v.target, required: inForce.min_api, since: inForce.effective_date },
-            }
-          : {
-              kind: "target_api", severity: "critical", fingerprint: `target:updates:${v.version}:${inForce.min_api}`,
-              title: `${which[0].toUpperCase() + which.slice(1)} version ${v.version} targets API ${v.target}: Google Play will refuse it as an update`,
-              detail: `${inForce.note ?? ""} Required since ${inForce.effective_date}: API ${inForce.min_api} or higher. Raise targetSdkVersion before releasing.`.trim(),
-              action_url: url, data: { target: v.target, required: inForce.min_api, since: inForce.effective_date },
-            },
-      );
-    } else if (next && v.target < next.min_api && daysBetween(today, next.effective_date) <= warnDays) {
-      out.push({
-        kind: "target_api_soon", severity: "warning", fingerprint: `target:${appliesTo}:${v.version}:${next.min_api}`,
-        title: `${which[0].toUpperCase() + which.slice(1)} version ${v.version} targets API ${v.target}; API ${next.min_api} is required from ${next.effective_date} (${daysBetween(today, next.effective_date)} days)`,
-        detail: `${next.note ?? ""} ${appliesTo === "existing" ? "After that date, new users on newer Android can't install it." : "After that date, Google Play won't accept updates below it."}`.trim(),
-        action_url: url, data: { target: v.target, required: next.min_api, from: next.effective_date },
-      });
-    }
+  const existing = ruleState(rules, "existing", today);
+  const updates = ruleState(rules, "updates", today);
+  const graceDays = (r: TargetRule) => (r.extended_to && r.extended_to > today ? daysBetween(today, r.extended_to) : null);
+  const soon = (v: VersionTarget, r: TargetRule | null, which: string, after: string) => {
+    if (!r || v.target === null || v.target >= r.min_api) return;
+    const days = daysBetween(today, r.effective_date);
+    if (days > warnDays) return;
+    out.push({
+      kind: "target_api_soon", severity: "warning", fingerprint: `target:${r.applies_to}:${v.version}:${r.min_api}`,
+      title: `${which} ${v.version} targets API ${v.target}: ${androidName(r.min_api)} is required from ${dayText(r.effective_date)} (${plural(days, "day")} away)`,
+      detail: `${r.note ?? ""} ${after}`.trim(),
+      action_url: url, data: { target: v.target, required: r.min_api, from: r.effective_date },
+    });
   };
-  // The live version must meet the rule for existing apps; the version QA is testing (the next
-  // update) the rule for updates. When both are the same version, its target is asked for once.
+
   if (live) {
-    if (live.target === null) out.push(missing(live, "the live"));
-    else check(live, "existing", "the live");
-  }
-  if (upcoming) {
-    const same = !!live && sameVersion(live.version, upcoming.version);
-    const target = upcoming.target ?? (same ? live!.target : null);
-    if (target === null) {
-      if (!same) out.push(missing(upcoming, "the upcoming"));
+    if (live.target === null) {
+      out.push(missing(live, "the live"));
     } else {
-      check({ version: upcoming.version, target }, "updates", "the upcoming");
+      const ex = existing.inForce;
+      if (ex && live.target < ex.min_api) {
+        out.push({
+          kind: "target_api", severity: "critical", fingerprint: `policy:existing:${ex.min_api}`,
+          title: "App not available to new users on Android versions higher than your target API level",
+          detail: `App must target ${androidName(ex.min_api)} or higher. The live version ${live.version} targets API ${live.target}. Reduced availability from ${dayText(ex.effective_date)}. Publish an update that targets API ${Math.max(ex.min_api, updates.inForce?.min_api ?? 0)} or higher.`,
+          action_url: url, data: { version: live.version, target: live.target, required: ex.min_api, since: ex.effective_date },
+        });
+      }
+      const up = updates.inForce;
+      if (up && live.target < up.min_api) {
+        const grace = graceDays(up);
+        const fixedBy =
+          upcoming && upcoming.target !== null && upcoming.target >= up.min_api && !sameVersion(upcoming.version, live.version)
+            ? ` Version ${upcoming.version}, which QA is testing, targets API ${upcoming.target} and fixes this once it is published.`
+            : "";
+        out.push({
+          kind: "target_api", severity: "critical", fingerprint: `policy:updates:${up.min_api}`,
+          title:
+            grace !== null
+              ? `App updates will be rejected: must target ${androidName(up.min_api)}. Fix by ${dayText(up.extended_to!)} (${plural(grace, "day")} away)`
+              : `App updates are rejected: must target ${androidName(up.min_api)} or higher`,
+          detail:
+            (grace !== null
+              ? `The live version ${live.version} targets API ${live.target}. Google's extension ends ${dayText(up.extended_to!)}; after that Play rejects every update below API ${up.min_api}.`
+              : `The live version ${live.version} targets API ${live.target}. Since ${dayText(up.effective_date)}, Play rejects every update below API ${up.min_api}.`) + fixedBy,
+          action_url: url,
+          data: { version: live.version, target: live.target, required: up.min_api, since: up.effective_date, extended_to: up.extended_to ?? null },
+        });
+      }
+      soon(live, existing.next, "The live version", "After that date, new users on newer Android can't install it.");
+    }
+  }
+
+  if (upcoming && !(live && sameVersion(live.version, upcoming.version))) {
+    if (upcoming.target === null) {
+      out.push(missing(upcoming, "the upcoming"));
+    } else {
+      const up = updates.inForce;
+      if (up && upcoming.target < up.min_api) {
+        const grace = graceDays(up);
+        out.push({
+          kind: "target_api", severity: "critical", fingerprint: `target:updates:${upcoming.version}:${up.min_api}`,
+          title: `Version ${upcoming.version} (QA is testing) targets API ${upcoming.target}: Google Play will reject it as an update`,
+          detail: `App updates must target ${androidName(up.min_api)} or higher${grace !== null ? ` (Google's extension ends ${dayText(up.extended_to!)})` : ""}. Raise targetSdkVersion before releasing.`,
+          action_url: url, data: { target: upcoming.target, required: up.min_api, since: up.effective_date },
+        });
+      } else {
+        soon(upcoming, updates.next, "Version", "After that date, Google Play won't accept updates below it.");
+      }
     }
   }
   return out;
