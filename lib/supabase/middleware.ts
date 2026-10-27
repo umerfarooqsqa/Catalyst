@@ -7,6 +7,7 @@ const PUBLIC_PATHS = [
   "/auth",
   "/api/health",
   "/api/push/dispatch", // Supabase webhook — authorized by its own shared secret
+  "/api/push/subscribe", // service worker renewing a subscription with no session; the route checks session / old endpoint
   "/api/email/dispatch", // Supabase ping (0044) — sends only what is already queued, within the quota
   "/api/intake/whatsapp", // Grok (0047) — its own key; can only add rows to the review inbox
   "/api/intake/play-mail", // Google Apps Script (0056) — its own key; Play Console emails become app warnings

@@ -969,6 +969,13 @@ export type Database = {
           },
         ]
       }
+      play_apps_ignored: {
+        Row: { package: string; ignored_at: string; note: string | null }
+        Insert: { package: string; ignored_at?: string; note?: string | null }
+        Update: { package?: string; ignored_at?: string; note?: string | null }
+        Relationships: [
+        ]
+      }
       play_builds: {
         Row: {
           error: string | null
@@ -1071,6 +1078,7 @@ export type Database = {
           active: boolean
           cleared_at: string | null
           close_note: string | null
+          notified_at: string | null
           closed_at: string | null
           closed_by: string | null
           data: Json
@@ -1093,6 +1101,7 @@ export type Database = {
           active?: boolean
           cleared_at?: string | null
           close_note?: string | null
+          notified_at?: string | null
           closed_at?: string | null
           closed_by?: string | null
           data?: Json
@@ -1115,6 +1124,7 @@ export type Database = {
           active?: boolean
           cleared_at?: string | null
           close_note?: string | null
+          notified_at?: string | null
           closed_at?: string | null
           closed_by?: string | null
           data?: Json
@@ -1638,6 +1648,7 @@ export type Database = {
           mode: "instant" | "auto_batch" | "daily_digest"
           batch_size: number
           fallback_hours: number
+          fallback_minutes: number
           digest_time: string
           updated_at: string
           updated_by: string | null
@@ -1647,6 +1658,7 @@ export type Database = {
           mode?: "instant" | "auto_batch" | "daily_digest"
           batch_size?: number
           fallback_hours?: number
+          fallback_minutes?: number
           digest_time?: string
           updated_at?: string
           updated_by?: string | null
@@ -1656,6 +1668,7 @@ export type Database = {
           mode?: "instant" | "auto_batch" | "daily_digest"
           batch_size?: number
           fallback_hours?: number
+          fallback_minutes?: number
           digest_time?: string
           updated_at?: string
           updated_by?: string | null
@@ -1996,6 +2009,7 @@ export type Database = {
         Returns: Json
       }
       app_warning_close: { Args: { p_id: string; p_note?: string | null }; Returns: undefined }
+      play_mail_unmatched_notify: { Args: { p_subject: string }; Returns: undefined }
       play_app_claim: { Args: Record<string, never>; Returns: { package: string; key_id: string }[] }
       play_app_adopt: { Args: { p_package: string; p_title: string }; Returns: string }
       monitor_claim: {

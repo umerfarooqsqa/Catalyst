@@ -36,27 +36,34 @@ const QUERY = '(from:noreply-play-console@google.com OR from:googleplay-noreply@
 function forwardPlayConsoleMail() {
   const props = PropertiesService.getScriptProperties();
   const since = Number(props.getProperty("since") || Date.now() - 7 * 86400000);
-  let newest = since;
   const messages = [];
-  GmailApp.search(QUERY + " after:" + Math.floor(since / 1000), 0, 100).forEach(function (thread) {
-    thread.getMessages().forEach(function (m) {
-      const at = m.getDate().getTime();
-      if (at <= since) return;
-      newest = Math.max(newest, at);
-      messages.push({ id: m.getId(), thread_id: thread.getId(), date: m.getDate().toISOString(),
-                      from: m.getFrom(), subject: m.getSubject(), body: m.getPlainBody().slice(0, 8000) });
+  // every thread with mail newer than "since", page by page
+  for (let start = 0; ; start += 100) {
+    const threads = GmailApp.search(QUERY + " after:" + Math.floor(since / 1000), start, 100);
+    threads.forEach(function (thread) {
+      thread.getMessages().forEach(function (m) {
+        if (m.getDate().getTime() <= since) return;
+        messages.push({ id: m.getId(), thread_id: thread.getId(), date: m.getDate().toISOString(), at: m.getDate().getTime(),
+                        from: m.getFrom(), subject: m.getSubject(), body: m.getPlainBody().slice(0, 8000) });
+      });
     });
-  });
-  if (messages.length) {
+    if (threads.length < 100) break;
+  }
+  // oldest first, a few at a time; "since" moves only past what catalyst took, so nothing is skipped
+  messages.sort(function (a, b) { return a.at - b.at; });
+  while (messages.length) {
+    const batch = messages.slice(0, 10);
     const res = UrlFetchApp.fetch(CATALYST_URL, {
       method: "post", contentType: "application/json", muteHttpExceptions: true,
-      headers: { "x-play-mail-key": CATALYST_KEY }, payload: JSON.stringify({ messages: messages }),
+      headers: { "x-play-mail-key": CATALYST_KEY }, payload: JSON.stringify({ messages: batch }),
     });
     if (res.getResponseCode() !== 200) {
       throw new Error("catalyst answered " + res.getResponseCode() + ": " + res.getContentText());
     }
+    const taken = Math.max(1, Number(JSON.parse(res.getContentText()).accepted) || batch.length);
+    props.setProperty("since", String(batch[taken - 1].at));
+    messages.splice(0, taken);
   }
-  props.setProperty("since", String(newest));
 }
 `;
 }
@@ -320,6 +327,7 @@ export default async function GooglePlayAdminPage() {
         <RuleForm />
       </Card>
 
+      <div id="mails" />
       <Card className="p-4">
         <h2 className="mb-1 text-sm font-semibold text-slate-700">Play Console emails</h2>
         <p className="mb-3 text-xs text-slate-500">

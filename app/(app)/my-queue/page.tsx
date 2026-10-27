@@ -207,7 +207,8 @@ export default async function MyQueuePage() {
         )
         .eq("status", "open")
         .eq("severity", "critical")
-        .not("source", "like", "monitor%")
+        // app problems, and "checks have stopped" (0060); other monitor notes are admin-page only
+        .or("source.not.like.monitor%,source.like.monitor_stale%")
         .order("last_seen_at", { ascending: false })
         .limit(300)
     : { data: null };

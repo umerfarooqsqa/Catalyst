@@ -104,7 +104,7 @@ export async function readBuildSdk(token: string, pkg: string, versionCode: numb
   const id = base?.downloadId ?? set?.generatedUniversalApk?.downloadId;
   if (!id) throw new Error(`Play has no generated APKs for build ${versionCode} (uploaded as an APK, not an app bundle?)`);
   const res = await fetch(`${PUB}/${pkg}/generatedApks/${versionCode}/downloads/${encodeURIComponent(id)}:download?alt=media`, {
-    headers: { Authorization: `Bearer ${token}`, Range: "bytes=0-262143" },
+    headers: { Authorization: `Bearer ${token}`, Range: `bytes=0-${MAX_READ - 1}` }, // stops reading once the manifest is found
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok || !res.body) throw new Error(`downloading build ${versionCode} from Play failed (HTTP ${res.status})`);

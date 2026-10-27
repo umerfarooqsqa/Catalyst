@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Badge, Button, cx } from "@/components/ui";
@@ -21,6 +21,35 @@ export default function NotificationList({
   initial: Notification[];
 }) {
   const [items, setItems] = useState(initial);
+
+  // live, and caught up after the page slept (it was rendered once and never refreshed)
+  const reload = useCallback(async () => {
+    const { data } = await createClient()
+      .from("notifications")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(100);
+    if (data) setItems(data);
+  }, []);
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel("notif-list")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, () => reload())
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") reload();
+      });
+    const onVisible = () => {
+      if (document.visibilityState === "visible") reload();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", reload);
+    return () => {
+      supabase.removeChannel(channel);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", reload);
+    };
+  }, [reload]);
 
   async function markRead(id: string, is_read: boolean) {
     const supabase = createClient();

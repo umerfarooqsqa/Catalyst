@@ -62,7 +62,7 @@ export async function sendPushToUser(
         await webpush.sendNotification(
           { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
           body,
-          { TTL: 60 * 60 * 24, urgency: "high" },
+          { TTL: 60 * 60 * 24 * 4, urgency: "high" }, // a phone off for a weekend still gets it
         );
         sent++;
       } catch (err) {

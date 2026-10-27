@@ -36,7 +36,7 @@ export default function PushToggle({ userId }: { userId: string }) {
     // Service worker asks us to re-subscribe after the browser rotates keys.
     const onMessage = (e: MessageEvent) => {
       if (e.data?.type === "pushsubscriptionchange") {
-        enablePush(userId).finally(sync);
+        enablePush().finally(sync);
       }
     };
     navigator.serviceWorker?.addEventListener("message", onMessage);
@@ -47,7 +47,7 @@ export default function PushToggle({ userId }: { userId: string }) {
   async function toggle() {
     setBusy(true);
     setMsg(null);
-    const err = subscribed ? await disablePush() : await enablePush(userId);
+    const err = subscribed ? await disablePush() : await enablePush();
     if (err) setMsg(err);
     else if (!subscribed) {
       try {
@@ -72,7 +72,7 @@ export default function PushToggle({ userId }: { userId: string }) {
     try {
       const res = await fetch("/api/push/test", { method: "POST" });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) setMsg(json.error || "Test failed.");
+      setMsg(res.ok ? json.message || "Test sent the real way: it should arrive within a few seconds." : json.error || "Test failed.");
     } catch {
       setMsg("Test request failed.");
     }
@@ -105,7 +105,7 @@ export default function PushToggle({ userId }: { userId: string }) {
               ? "Blocked. Allow notifications for this site in your browser settings, then turn on."
               : "Get alerts on this device (sound + vibration), even when the app is closed."}
         </p>
-        {msg && <p className="mt-1 text-xs text-red-600">{msg}</p>}
+        {msg && <p className={cx("mt-1 text-xs", /should arrive/.test(msg) ? "text-slate-600" : "text-red-600")}>{msg}</p>}
       </div>
       <div className="flex shrink-0 gap-2">
         {subscribed && (

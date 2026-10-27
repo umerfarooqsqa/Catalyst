@@ -23,12 +23,17 @@ export type Warning = {
 
 // ── versions ──────────────────────────────────────────────────────────────────────────────
 
-/** "102 (1.0.6)" -> "1.0.6" (Play's default release name); a bare "1.0.6"/"v1.0.6" as is; else null. */
+/**
+ * "102 (1.0.6)" -> "1.0.6" (Play's default release name); a bare "1.0.6"/"v1.0.6" as is; a
+ * suffixed "1.0.6-hotfix" / "1.0.6 hotfix" -> "1.0.6"; else null (a custom name such as
+ * "4.5 - Re-Login Button": the build code identifies it then).
+ */
 export function versionName(releaseName: string | null | undefined): string | null {
   let name = String(releaseName ?? "").trim();
   const m = /^\d+\s*\((.+)\)$/.exec(name);
   if (m) name = m[1].trim();
-  return /^v?\d+(\.\d+)+$/i.test(name) ? name.replace(/^v/i, "") : null;
+  const v = /^v?(\d+(?:\.\d+)+)(?:[-+_ ][\w.-]*)?$/i.exec(name);
+  return v ? v[1] : null;
 }
 
 function parts(v: string | null | undefined): number[] | null {
@@ -72,10 +77,16 @@ const fact = (r: TrackRelease): ReleaseFact => ({
 });
 const newest = (rs: ReleaseFact[]) => (rs.length ? rs.reduce((a, b) => ((b.code ?? 0) > (a.code ?? 0) ? b : a)) : null);
 
-/** live = production completed; upcoming = a production draft / staged / halted rollout newer than live. */
+/**
+ * live = production completed (an app whose only production release is still a staged or
+ * halted rollout: that rollout, since users have it); upcoming = a production draft / staged /
+ * halted rollout newer than live.
+ */
 export function releaseFacts(production: TrackRelease[]): { live: ReleaseFact | null; upcoming: ReleaseFact | null } {
   const all = production.map(fact);
-  const live = newest(all.filter((r) => r.status === "completed"));
+  const live =
+    newest(all.filter((r) => r.status === "completed")) ??
+    newest(all.filter((r) => ["inProgress", "halted"].includes(r.status) && r.code !== null));
   const upcoming = newest(
     all.filter(
       (r) => ["draft", "inProgress", "halted"].includes(r.status) && r.code !== null && r.code > (live?.code ?? 0),
@@ -102,7 +113,14 @@ export function releaseWarnings(
       title: `The upcoming release "${upcoming.name}" doesn't show its version`,
       detail: 'Play names a release "<build> (<version>)" unless someone renames it. Without the version, catalyst can\'t compare it with the version QA is testing.',
     });
-  } else if (upcoming && currentVersion && !sameVersion(upcoming.version, currentVersion)) {
+  } else if (
+    upcoming &&
+    currentVersion &&
+    upcoming.code !== live?.code &&
+    !sameVersion(upcoming.version, currentVersion) &&
+    // QA already moved on to a newer version while this one finishes rolling out: not a mismatch
+    !((compareVersions(upcoming.version, currentVersion) ?? 1) < 0)
+  ) {
     const share = upcoming.fraction ? ` to ${pct(upcoming.fraction)} of users` : "";
     out.push({
       kind: "version_mismatch", severity: "critical", fingerprint: "release:version_mismatch",
@@ -256,7 +274,11 @@ export function targetApiWarnings(opts: {
       out.push(missing(upcoming, "the upcoming"));
     } else {
       const up = updates.inForce;
-      if (up && upcoming.target < up.min_api) {
+      const liveCard = up ? out.find((w) => w.fingerprint === `policy:updates:${up.min_api}`) : undefined;
+      if (up && upcoming.target < up.min_api && liveCard) {
+        // same rule, same fix: one red card, which also names the tested version
+        liveCard.detail = `${liveCard.detail ?? ""} Version ${upcoming.version}, which QA is testing, targets API ${upcoming.target} too, so Play would reject it as well: raise targetSdkVersion before releasing.`;
+      } else if (up && upcoming.target < up.min_api) {
         const grace = graceDays(up);
         out.push({
           kind: "target_api", severity: "critical", fingerprint: `target:updates:${upcoming.version}:${up.min_api}`,
@@ -274,10 +296,13 @@ export function targetApiWarnings(opts: {
 
 // ── vitals ───────────────────────────────────────────────────────────────────────────────
 
-/** Amber at early * limit, red over limit, else null. */
+/** Rates under 10% with two decimals, so a rate and its limit never read the same ("1.05% … 1.09%"). */
+const ratePct = (x: number) => (x < 0.1 ? `${(x * 100).toFixed(2)}%` : pct(x));
+
+/** Amber at early * limit, red at or over the limit (Google's thresholds are "at or above"), else null. */
 export function levelOf(rate: number, limit: number, early: number): Severity | null {
   if (!Number.isFinite(rate)) return null;
-  if (rate > limit) return "critical";
+  if (rate >= limit) return "critical";
   if (rate >= limit * early) return "warning";
   return null;
 }
@@ -299,7 +324,7 @@ export function rateWarning(opts: {
     kind: opts.kind,
     severity: sev,
     fingerprint: opts.fingerprint,
-    title: `${opts.what} ${pct(opts.rate)}${opts.scope ? ` ${opts.scope}` : ""}: ${sev === "critical" ? "over" : "close to"} Google's ${pct(opts.limit)} limit`,
+    title: `${opts.what} ${ratePct(opts.rate)}${opts.scope ? ` ${opts.scope}` : ""}: ${sev === "critical" ? "over" : "close to"} Google's ${ratePct(opts.limit)} limit`,
     detail: `${sev === "critical" ? opts.consequence : `It's at ${Math.round((opts.rate / opts.limit) * 100)}% of the limit.`} Last 28 days${opts.dataUpTo ? `, data up to ${opts.dataUpTo}` : ""}.`,
     data: { rate: opts.rate, limit: opts.limit },
   };
@@ -307,8 +332,29 @@ export function rateWarning(opts: {
 
 // ── Play Console emails ────────────────────────────────────────────────────────────────────
 
-const CRITICAL_MAIL =
-  /\b(remov(ed|al)|suspend|reject|terminat|violation|action required|take action|deadline|unpublish|will not be able|won'?t be able|blocked|restricted|policy (issue|status)|enforcement|limited visibility)\b/i;
+// Stems match every form ("suspended", "suspension", "rejected", "termination"); a bare
+// "deadline" doesn't count (newsletters use it), Google's action wording does.
+const CRITICAL_MAIL = new RegExp(
+  [
+    String.raw`\b(remov|suspen|reject|terminat|violat|unpublish|restrict|enforc|block)\w*`,
+    String.raw`\bnot (been )?approved\b`,
+    String.raw`\bnot (be )?available\b`,
+    String.raw`\baction (is )?required\b`,
+    String.raw`\btake action\b`,
+    String.raw`\b(will not|won'?t) be able\b`,
+    String.raw`\bpolicy (issue|status|violation|update)`,
+    String.raw`\b(reduced|limited) (visibility|availability)\b`,
+    String.raw`\bvisibility (is )?reduced\b`,
+    String.raw`\btarget api\b`,
+    String.raw`\bmust target\b`,
+    String.raw`\bdata safety\b`,
+    String.raw`\bdeclaration`,
+    String.raw`\bverify your (identity|account|developer)`,
+    String.raw`\baccount (will be |has been |is )?clos`,
+    String.raw`\bclos(e|ing) your (developer )?account\b`,
+  ].join("|"),
+  "i",
+);
 
 export function mailSeverity(subject: string, body: string): Severity {
   return CRITICAL_MAIL.test(`${subject}\n${body}`) ? "critical" : "warning";
@@ -316,15 +362,33 @@ export function mailSeverity(subject: string, body: string): Severity {
 
 export type MailProject = { id: string; name: string; package: string | null; house: string | null };
 
-/** The project a Play Console email is about: its package name, else exactly one project's name. */
-export function matchMailProject(text: string, projects: MailProject[]): string | null {
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The projects a Play Console email is about. A package counts only as a whole name
+ * ("com.catalyst.hmfs" isn't inside "com.catalyst.hmfsit"), and a mail listing several apps is
+ * about each of them. Without a package: the app's name, where a longer name containing a
+ * shorter one wins ("AHL Tick Next Generation" over "AHL Tick"); still ambiguous = none.
+ */
+export function matchMailProjects(text: string, projects: MailProject[]): string[] {
   const lower = text.toLowerCase();
-  const byPackage = projects.filter((p) => p.package && lower.includes(p.package.toLowerCase()));
-  if (byPackage.length === 1) return byPackage[0].id;
+  const byPackage = projects.filter(
+    (p) => p.package && new RegExp(`(^|[^a-z0-9_.])${escapeRe(p.package.toLowerCase())}(?![a-z0-9_])`).test(lower),
+  );
+  if (byPackage.length) return [...new Set(byPackage.map((p) => p.id))];
   const norm = (s: string) => s.toLowerCase().replace(/\s*\(.*?\)\s*/g, " ").replace(/\s+/g, " ").trim();
-  const byName = projects.filter((p) => {
-    const n = norm(p.name);
-    return n.length >= 4 && new RegExp(`(^|[^a-z0-9])${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9]|$)`).test(lower);
-  });
-  return byName.length === 1 ? byName[0].id : null;
+  const hits = projects
+    .map((p) => ({ id: p.id, n: norm(p.name) }))
+    .filter(({ n }) => n.length >= 4 && new RegExp(`(^|[^a-z0-9])${escapeRe(n)}([^a-z0-9]|$)`).test(lower));
+  const names = [...new Set(hits.map((h) => h.n))];
+  const longest = names.filter((n) => !names.some((m) => m !== n && m.includes(n)));
+  if (longest.length !== 1) return [];
+  const ids = hits.filter((h) => h.n === longest[0]).map((h) => h.id);
+  return ids.length === 1 ? ids : [];
+}
+
+/** The one project a Play Console email is about, or null. */
+export function matchMailProject(text: string, projects: MailProject[]): string | null {
+  const ids = matchMailProjects(text, projects);
+  return ids.length === 1 ? ids[0] : null;
 }

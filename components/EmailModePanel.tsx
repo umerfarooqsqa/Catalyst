@@ -10,7 +10,7 @@ export type EmailSettings = Database["public"]["Tables"]["project_email_settings
 export type EmailStats = Database["public"]["Functions"]["email_stats"]["Returns"][number];
 type Mode = EmailSettings["mode"];
 
-const DEFAULTS = { mode: "auto_batch" as Mode, batch_size: 5, fallback_hours: 4, digest_time: "09:00" };
+const DEFAULTS = { mode: "auto_batch" as Mode, batch_size: 5, fallback_minutes: 30, digest_time: "09:00" };
 
 const MODE_LABELS: Record<Mode, string> = {
   instant: "Instant",
@@ -38,7 +38,7 @@ export default function EmailModePanel({
   const current = {
     mode: settings?.mode ?? DEFAULTS.mode,
     batch_size: settings?.batch_size ?? DEFAULTS.batch_size,
-    fallback_hours: settings?.fallback_hours ?? DEFAULTS.fallback_hours,
+    fallback_minutes: settings?.fallback_minutes ?? DEFAULTS.fallback_minutes,
     digest_time: (settings?.digest_time ?? DEFAULTS.digest_time).slice(0, 5),
   };
   const [editing, setEditing] = useState(false);
@@ -50,15 +50,15 @@ export default function EmailModePanel({
     current.mode === "instant"
       ? "one email per bug event"
       : current.mode === "auto_batch"
-        ? `one email per ${current.batch_size} bugs, or after ${current.fallback_hours} h`
+        ? `assignments and comments at once; other changes one email per ${current.batch_size} bugs, or after ${current.fallback_minutes} min`
         : `one summary a day at ${current.digest_time}`;
 
   async function save() {
     setErr(null);
     const n = Number(form.batch_size);
-    const h = Number(form.fallback_hours);
+    const h = Number(form.fallback_minutes);
     if (!Number.isInteger(n) || n < 1 || n > 50) return setErr("Bugs per email must be 1–50.");
-    if (!Number.isInteger(h) || h < 1 || h > 72) return setErr("Send-anyway hours must be 1–72.");
+    if (!Number.isInteger(h) || h < 5 || h > 4320) return setErr("Send-anyway minutes must be 5–4320.");
     setBusy(true);
     const { error } = await createClient()
       .from("project_email_settings")
@@ -66,7 +66,7 @@ export default function EmailModePanel({
         project_id: projectId,
         mode: form.mode,
         batch_size: n,
-        fallback_hours: h,
+        fallback_minutes: h,
         digest_time: form.digest_time,
         updated_at: new Date().toISOString(),
         updated_by: userId,
@@ -144,13 +144,13 @@ export default function EmailModePanel({
                 />
               </label>
               <label className="flex flex-col gap-0.5">
-                <span className="text-xs text-slate-500">Send anyway after (hours)</span>
+                <span className="text-xs text-slate-500">Send anyway after (minutes)</span>
                 <input
                   type="number"
-                  min={1}
-                  max={72}
-                  value={form.fallback_hours}
-                  onChange={(e) => setForm({ ...form, fallback_hours: Number(e.target.value) })}
+                  min={5}
+                  max={4320}
+                  value={form.fallback_minutes}
+                  onChange={(e) => setForm({ ...form, fallback_minutes: Number(e.target.value) })}
                   className="w-20 rounded-md border border-slate-300 bg-white px-2 py-1"
                 />
               </label>

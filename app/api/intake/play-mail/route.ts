@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/admin";
-import { receivePlayMails, type PlayMail } from "@/lib/monitor/play-mail";
+import { receivePlayMails, MAX_PER_CALL, type PlayMail } from "@/lib/monitor/play-mail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,9 +10,10 @@ export const dynamic = "force-dynamic";
  * Play Console emails (policy, Inbox, removal notices, deadlines), sent every 10 minutes by the
  * Google Apps Script an admin set up from Admin -> Google Play (migration 0056).
  * Header x-play-mail-key = private.settings play_mail_key.
- * Body {messages: [{id, thread_id, date, from, subject, body}]} (at most 200).
- * Each message is stored once; one that names an app becomes a card on it; the rest wait on
- * the admin page for a person to choose the app.
+ * Body {messages: [{id, thread_id, date, from, subject, body}]}, oldest first. Only the first
+ * MAX_PER_CALL are taken (Cloudflare's per-run request limit); the answer's `accepted` says how
+ * many, and the script sends the rest next. Each message is stored once; one naming apps becomes
+ * a card on each; one naming none rings App health and waits on the admin page.
  */
 export async function POST(req: Request) {
   const supabase = serviceRoleClient();
@@ -23,7 +24,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const body = await req.json().catch(() => null);
-  const messages: PlayMail[] = Array.isArray(body?.messages) ? body.messages.slice(0, 200) : [];
+  const messages: PlayMail[] = Array.isArray(body?.messages) ? body.messages.slice(0, MAX_PER_CALL) : [];
   try {
     return NextResponse.json(await receivePlayMails(messages));
   } catch (e) {

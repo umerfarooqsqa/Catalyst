@@ -148,7 +148,9 @@ rewrite.
   - **Bugs page:** `BugBoard` also opens the drawer when `?focus=` changes on an already open page. Closing the drawer removes the parameter, so a later link to the same bug opens it again. Clicking a notification marks it read.
   - **Tasks, the same way:** task notifications link to `/tasks/<id>` (`app/(app)/tasks/[taskId]/page.tsx`), which redirects to `/projects/<project>/tasks?focus=<id>`; `TaskBoard` opens that task's drawer, where an admin approves or sends it back. RLS applies: a developer only reaches tasks they may see (0017). Web Push already used `?focus=` for tasks, which the Tasks page ignored until now.
 - **Instant in the app:** the bell is live over realtime (0016) for anyone with the portal open.
-- **Push to closed apps is not live:** it needs the 0016 webhook configured. That means `private.settings` rows `push_dispatch_url` / `push_dispatch_secret`, and the same value as the worker secret `PUSH_DISPATCH_SECRET`. On 2026-09-30 the worker had no `PUSH_DISPATCH_SECRET` (`wrangler secret list`: only `SUPABASE_SERVICE_ROLE_KEY`, `VAPID_PRIVATE_KEY`), so `/api/push/dispatch` answers 401.
+- **Push to closed apps (switched on 2026-10-27):** the 0016 webhook needs `private.settings` rows `push_dispatch_url` / `push_dispatch_secret` and the same value as the worker secret `PUSH_DISPATCH_SECRET`. Until 2026-10-27 none existed, so no push was ever sent and only email reached anyone with the portal closed (found by the 2026-10-27 test run). Never put the secret in `.env.local` (it would be baked into the bundle and override the worker secret).
+- **Push fixes (2026-10-27):** "Send test" files a real notification (the whole trigger → pg_net → dispatch path; before it pushed directly and passed while the real path was off). Subscriptions are saved through `/api/push/subscribe` (moves an endpoint to whoever is signed in; the service worker renews a rotated subscription itself on `pushsubscriptionchange`, with no page open); the bell re-saves the device's subscription on every load; sign-out forgets the device; the toggle shows "on" only when the server has the row. Pushes live 4 days (TTL) and each notification is its own entry (no longer replaced per bug). The bell and Notifications page reload on reconnect / tab focus (missed realtime events aren't replayed).
+- **Emails (2026-10-27, migration 0060):** task notifications are emailed (only bugs were); bug assignments and comments are instant, other bug changes batch with a 30-minute fallback (`project_email_settings.fallback_minutes`, was 4 hours). Admin → Users warns about people with no "Bug emails go to" address (they get no email at all).
 
 ### Lead and junior developers (2026-10-01, migration 0040; applied 2026-10-01 via the Management API, deployed `438d9f04-b4f4-4866-af61-f9f4b8f4c5f0`, rollback `npx wrangler rollback 99d3b7ea-a59d-43c7-85a4-9250b43dcfc5`)
 - **Rank:** `profiles.dev_rank` is `lead`, `junior` or null (a regular developer). An admin sets it on Admin → Users, next to the role. It is saved only for contributor-level (developer) roles, and cleared otherwise (`updateUser`).
@@ -421,8 +423,8 @@ app — chosen to stay entirely inside the existing free stack (no new third-par
   `push_subscriptions` via the `web-push` npm package. If a push fails with 404/410 (expired
   subscription), delete that row instead of retrying it.
 
-Not yet implemented — this whole section is a spec for a future build step, not something in
-the codebase yet.
+Built since (migration 0016, `public/sw.js`, `components/PushToggle.tsx`, `/api/push/*`); switched on
+2026-10-27. See "Push to closed apps" and "Push fixes" in the 0038 notes above.
 
 ## Commands
 

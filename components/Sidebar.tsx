@@ -6,6 +6,7 @@ import { cx } from "@/components/ui";
 import type { Project, RoleLevel } from "@/lib/types/models";
 import { canAdminister, canSeeAutomation, canManageProjects } from "@/lib/permissions";
 import AndroidAppButton from "@/components/AndroidAppButton";
+import { forgetPushOnThisDevice } from "@/lib/push-client";
 
 /* --- tiny inline icon set (16px, currentColor) --- */
 const I = {
@@ -197,7 +198,16 @@ export default function Sidebar({
           </div>
         </div>
         <AndroidAppButton variant="sidebar" />
-        <form action="/auth/signout" method="post">
+        <form
+          action="/auth/signout"
+          method="post"
+          onSubmit={(e) => {
+            // stop this device getting this person's pushes, then sign out
+            e.preventDefault();
+            const form = e.currentTarget;
+            forgetPushOnThisDevice().finally(() => form.submit());
+          }}
+        >
           <button
             type="submit"
             className="mt-2 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:border-red-300 hover:bg-red-50 hover:text-red-600"

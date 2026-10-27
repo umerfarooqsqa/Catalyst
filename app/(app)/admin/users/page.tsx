@@ -121,6 +121,19 @@ export default async function AdminUsersPage({
         </form>
       </Card>
 
+      {/* nobody reads @catalyst.com logins: without an address a person gets no email at all (0045) */}
+      {rows.some((u) => !notifyOf.get(u.id)) ? (
+        <Card className="mb-4 border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          <b>No email at all</b> reaches{" "}
+          {rows
+            .filter((u) => !notifyOf.get(u.id))
+            .map((u) => u.full_name)
+            .join(", ")}
+          : they have no &quot;Bug emails go to&quot; address, so bug, task and app-warning emails skip them (critical ones
+          too). Add their addresses below.
+        </Card>
+      ) : null}
+
       {/* Phones: one card per user (the table's role/password columns don't fit) */}
       <ul className="space-y-2 sm:hidden">
         {rows.map((u) => (

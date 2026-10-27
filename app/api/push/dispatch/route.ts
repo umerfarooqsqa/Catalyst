@@ -80,7 +80,7 @@ export async function POST(req: Request) {
     title: "Catalyst",
     body: message,
     url,
-    tag: related_bug_id ?? related_task_id ?? body.notification_id ?? undefined,
+    tag: body.notification_id ?? undefined, // one entry per notification: events on one bug no longer replace each other
     vibrate: [180, 80, 180],
   };
 

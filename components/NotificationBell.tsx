@@ -5,6 +5,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { fmtRelative } from "@/lib/format";
 import type { Notification } from "@/lib/types/models";
+import { syncPushSubscription } from "@/lib/push-client";
 
 export default function NotificationBell({ userId }: { userId: string }) {
   const [items, setItems] = useState<Notification[]>([]);
@@ -48,9 +49,26 @@ export default function NotificationBell({ userId }: { userId: string }) {
           }
         },
       )
-      .subscribe();
+      // (re)joined after the socket dropped (phone app in the background, laptop asleep):
+      // events in between aren't replayed, so read the list again
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") load();
+      });
+    // back to the page / back online: catch up on anything missed
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", load);
+    window.addEventListener("focus", load);
+    // keep this device's push subscription saved for whoever is signed in (renewed keys, a
+    // pruned row, a shared browser after switching accounts)
+    syncPushSubscription();
     return () => {
       supabase.removeChannel(channel);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", load);
+      window.removeEventListener("focus", load);
     };
   }, [userId, load]);
 

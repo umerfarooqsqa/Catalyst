@@ -65,11 +65,30 @@ self.addEventListener("notificationclick", (event) => {
   );
 });
 
-/* Expired subscription — tell the page so it can re-subscribe. */
+/* The browser renewed the subscription (keys rotated, or it expired). Renew and save it here,
+   so it works even when no page is open: before, only an open Notifications page re-saved it,
+   and pushes silently stopped. /api/push/subscribe moves the old endpoint's row to the new one. */
 self.addEventListener("pushsubscriptionchange", (event) => {
   event.waitUntil(
-    self.clients.matchAll({ includeUncontrolled: true }).then((clients) => {
-      clients.forEach((c) => c.postMessage({ type: "pushsubscriptionchange" }));
-    }),
+    (async () => {
+      const old = event.oldSubscription;
+      let sub = event.newSubscription;
+      if (!sub && old && old.options) {
+        sub = await self.registration.pushManager.subscribe(old.options);
+      }
+      if (!sub) return;
+      const json = sub.toJSON();
+      await fetch("/api/push/subscribe", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endpoint: json.endpoint,
+          p256dh: json.keys && json.keys.p256dh,
+          auth: json.keys && json.keys.auth,
+          old_endpoint: old ? old.endpoint : undefined,
+        }),
+      });
+    })().catch(() => {}),
   );
 });

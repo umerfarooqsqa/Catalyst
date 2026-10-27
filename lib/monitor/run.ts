@@ -48,16 +48,19 @@ type Config = {
   new_crash_min_users: number;
   target_warn_days: number;
 };
+type CheckResult = { ok: boolean; note: string | null };
 type KeyRow = { id: string; name: string; client_email: string; gcp_project: string | null; apps_checked_at: string | null };
 
 const db = () => serviceRoleClient();
 const num = (v: unknown) => Number(v);
 
-async function sync(projectId: string, source: string, items: Warning[]) {
+/** clear = false keeps the source's other cards as they are (a partial read must not clear them). */
+async function sync(projectId: string, source: string, items: Warning[], clear = true) {
   const { error } = await db().rpc("app_warnings_sync", {
     p_project: projectId,
     p_source: source,
     p_items: items as unknown as never,
+    p_clear: clear,
   });
   if (error) throw new Error(`saving ${source} warnings: ${error.message}`);
 }
@@ -115,10 +118,37 @@ const KEYS_PER_RUN = 2;
 type KeyFound = { key: KeyRow; token: string } | { error: string; pending?: boolean; noKeys?: boolean };
 
 /**
- * The key for a package: the one play_key_apps maps it to. While some keys haven't listed their
- * apps yet (or their list is a day old), up to KEYS_PER_RUN of them are listed per run and the
- * check says "pending" (retried soon, no card). Keys whose listing failed (e.g. the Reporting API
- * isn't enabled in their project) are tried directly with an edit, again KEYS_PER_RUN at a time.
+ * Lists the apps of one key whose list is missing or a day old (fix 2026-10-27: before, keys were
+ * only listed while some app had no key, so new apps and newly uploaded keys were never found).
+ * Runs as its own Worker run; returns null when no key is due.
+ */
+async function refreshDueKey(): Promise<{ project: string; check: string; ok: boolean; note: string | null } | null> {
+  const dayAgo = new Date(Date.now() - 24 * 3600_000).toISOString();
+  const { data: due } = await db()
+    .from("play_keys")
+    .select("id, name, client_email, gcp_project, apps_checked_at")
+    .or(`apps_checked_at.is.null,apps_checked_at.lt.${dayAgo}`)
+    .order("apps_checked_at", { ascending: true, nullsFirst: true })
+    .limit(1);
+  const key = due?.[0];
+  if (!key) return null;
+  // claim it first, so parallel runs list different keys
+  const { data: claimed } = await db()
+    .from("play_keys")
+    .update({ apps_checked_at: new Date().toISOString() })
+    .eq("id", key.id)
+    .or(`apps_checked_at.is.null,apps_checked_at.lt.${dayAgo}`)
+    .select("id");
+  if (!claimed?.length) return null;
+  await refreshKeyApps(key);
+  return { project: `key ${key.name}`, check: "list apps", ok: true, note: null };
+}
+
+/**
+ * The key for a package: the one play_key_apps maps it to (each key's list is refreshed daily by
+ * refreshDueKey). While a key still has never been listed, the check says "pending" (retried
+ * soon, no card). Keys whose listing failed (e.g. the Reporting API isn't enabled in their
+ * project) are tried directly with an edit, KEYS_PER_RUN at a time, in a different order each run.
  * Only when every key has been listed or tried and none reaches the app is it an error.
  */
 async function keyFor(pkg: string): Promise<KeyFound> {
@@ -127,9 +157,7 @@ async function keyFor(pkg: string): Promise<KeyFound> {
     .from("play_keys")
     .select("id, name, client_email, gcp_project, apps_checked_at, last_error");
   if (!keys?.length) return { error: "No Google Play keys are uploaded (Admin → Google Play).", noKeys: true };
-  const mapped = async () =>
-    (await supabase.from("play_key_apps").select("key_id").eq("package", pkg)).data?.map((r) => r.key_id) ?? [];
-  let ids = await mapped();
+  const ids = (await supabase.from("play_key_apps").select("key_id").eq("package", pkg)).data?.map((r) => r.key_id) ?? [];
   const errors: string[] = [];
   for (const k of keys.filter((k) => ids.includes(k.id))) {
     try {
@@ -139,20 +167,12 @@ async function keyFor(pkg: string): Promise<KeyFound> {
     }
   }
   if (errors.length) return { error: `The key for this app failed: ${errors.join("; ")}` };
-
-  const dayAgo = Date.now() - 24 * 3600_000;
-  const unlisted = keys.filter((k) => !k.apps_checked_at || Date.parse(k.apps_checked_at) < dayAgo);
-  for (const k of unlisted.slice(0, KEYS_PER_RUN)) await refreshKeyApps(k);
-  ids = await mapped();
-  const hit = keys.find((k) => ids.includes(k.id));
-  if (hit) return { key: hit, token: await accessToken(await keyJson(hit.id)) };
-  if (unlisted.length > KEYS_PER_RUN) {
+  if (keys.some((k) => !k.apps_checked_at)) {
     return { error: "Still listing which apps each key reaches.", pending: true };
   }
 
-  // keys whose app list couldn't be read: try them directly, a few per run
-  const { data: tried } = await supabase.from("play_keys").select("id, last_error").not("last_error", "is", null);
-  const candidates = keys.filter((k) => tried?.some((t) => t.id === k.id));
+  // keys whose app list couldn't be read: try them directly, a few per run, rotating
+  const candidates = keys.filter((k) => k.last_error).sort(() => Math.random() - 0.5);
   for (const k of candidates.slice(0, KEYS_PER_RUN)) {
     try {
       const token = await accessToken(await keyJson(k.id));
@@ -272,27 +292,38 @@ async function portalWarnings(c: Claim, liveVersion: string | null): Promise<War
   return out;
 }
 
-async function checkPlay(c: Claim, cfg: Config): Promise<string | null> {
+async function checkPlay(c: Claim, cfg: Config): Promise<CheckResult> {
   const supabase = db();
   const found = await keyFor(c.package);
   let liveVersion: string | null = null;
+  let liveCode: number | null = null;
   let problem: string | null = null;
   if ("error" in found && (found.pending || found.noKeys)) {
     throw new Error(found.error); // retried soon; not a card: nothing is wrong with the app
   }
+  // when Play can't be read, the last known live build stands in, so no real card is cleared
+  const lastKnown = async () => {
+    const { data: pv } = await supabase
+      .from("play_versions")
+      .select("live_version, live_code")
+      .eq("project_id", c.project_id)
+      .maybeSingle();
+    liveVersion = pv?.live_version ?? null;
+    liveCode = pv?.live_code ?? null;
+  };
   if ("error" in found) {
     await sync(c.project_id, "monitor_play", [{
       kind: "no_play_access", severity: "critical", fingerprint: "monitor:no_play_access",
       title: "Google Play can't be checked for this app", detail: found.error, action_url: "/admin/google-play",
     }]);
-    const { data: pv } = await supabase.from("play_versions").select("live_version").eq("project_id", c.project_id).maybeSingle();
-    liveVersion = pv?.live_version ?? null;
+    await lastKnown();
     problem = found.error;
   } else {
     try {
       const { production, lifecycle } = await playReleases(found.token, c.package);
       const facts = releaseFacts(production);
       liveVersion = facts.live?.version ?? null;
+      liveCode = facts.live?.code ?? null;
       await supabase.from("play_versions").upsert(
         {
           project_id: c.project_id, package: c.package, play_key: found.key.name, reachable: true, error: null,
@@ -315,15 +346,21 @@ async function checkPlay(c: Claim, cfg: Config): Promise<string | null> {
           title: "App is suspended on Google Play",
           detail: "Google Play suspended this app: users can't install or update it. Play Console's Policy status page says why and how to appeal.",
         }]);
+        // the portal cards (release notes, critical bugs) still hold: leave them
         await sync(c.project_id, "monitor_play", []);
-        await sync(c.project_id, "portal", []);
-        return null;
+        return { ok: true, note: null };
       }
       problem = explainGoogleError(e);
+      if (e instanceof GoogleError && (e.status === 404 || (e.status === 403 && !/already in use/i.test(e.message)))) {
+        // this key lost access: forget the mapping so the next run looks for a key that can read it
+        // ("Cloud project already in use" is a Play API setup problem; the key still reads vitals)
+        await supabase.from("play_key_apps").delete().eq("key_id", found.key.id).eq("package", c.package);
+      }
       await sync(c.project_id, "monitor_play", [{
         kind: "play_error", severity: "critical", fingerprint: "monitor:play_error",
         title: "Reading this app's releases from Google Play failed", detail: problem, action_url: "/admin/google-play",
       }]);
+      await lastKnown();
     }
   }
 
@@ -332,23 +369,26 @@ async function checkPlay(c: Claim, cfg: Config): Promise<string | null> {
     supabase.from("releases").select("version, target_sdk").eq("project_id", c.project_id),
     supabase.from("play_builds").select("version_code, version_name, target_sdk, error").eq("package", c.package),
   ]);
-  // Play's copy of the build wins (it is what users get); the portal's entry is the fallback
-  const targetOf = (v: string | null): VersionTarget | null => {
-    if (!v) return null;
+  // Play's copy of the build wins (it is what users get); the portal's entry is the fallback.
+  // A build is found by its code when known (a release with a custom name has no version).
+  const targetOf = (v: string | null, code: number | null = null): VersionTarget | null => {
+    if (!v && !code) return null;
     const play = (builds ?? [])
-      .filter((b) => sameVersion(b.version_name, v))
+      .filter((b) => (code ? b.version_code === code : sameVersion(b.version_name, v)))
       .sort((a, b) => b.version_code - a.version_code)[0];
-    if (play?.target_sdk) return { version: v, target: play.target_sdk, fromPlay: true };
-    const entered = versions?.find((r) => sameVersion(r.version, v))?.target_sdk ?? null;
-    return { version: v, target: entered, readError: entered === null ? play?.error ?? null : null };
+    const label = v ?? `build ${code}`;
+    if (play?.target_sdk) return { version: label, target: play.target_sdk, fromPlay: true };
+    const entered = v ? versions?.find((r) => sameVersion(r.version, v))?.target_sdk ?? null : null;
+    return { version: label, target: entered, readError: entered === null ? play?.error ?? null : null };
   };
   await sync(
     c.project_id,
     "target_api",
     targetApiWarnings({
       rules: (rules ?? []) as TargetRule[],
-      today: new Date().toISOString().slice(0, 10),
-      live: targetOf(liveVersion),
+      // Google's deadlines are Pacific time
+      today: new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }),
+      live: targetOf(liveVersion, liveCode),
       upcoming: targetOf(c.current_version),
       warnDays: cfg.target_warn_days,
       projectId: c.project_id,
@@ -357,7 +397,8 @@ async function checkPlay(c: Claim, cfg: Config): Promise<string | null> {
   // a project added from Play (0059) has no versions or notes in the portal: nothing to check there
   const { data: proj } = await supabase.from("projects").select("added_from_play").eq("id", c.project_id).maybeSingle();
   await sync(c.project_id, "portal", proj?.added_from_play ? [] : await portalWarnings(c, liveVersion));
-  return problem;
+  // a check that couldn't read Play failed: back-off, and "checks have stopped" after stale_minutes
+  return { ok: problem === null, note: problem };
 }
 
 // ── the 'vitals' check ─────────────────────────────────────────────────────────────────────
@@ -396,7 +437,7 @@ async function queryDay(token: string, pkg: string, set: string, end: Ymd, metri
   return res.rows ?? [];
 }
 
-async function checkVitals(c: Claim, cfg: Config): Promise<string | null> {
+async function checkVitals(c: Claim, cfg: Config): Promise<CheckResult> {
   const supabase = db();
   const found = await keyFor(c.package);
   if ("error" in found && (found.pending || found.noKeys)) {
@@ -407,7 +448,7 @@ async function checkVitals(c: Claim, cfg: Config): Promise<string | null> {
       kind: "no_vitals_access", severity: "critical", fingerprint: "monitor:no_vitals_access",
       title: "Android vitals can't be checked for this app", detail: found.error, action_url: "/admin/google-play",
     }]);
-    return found.error;
+    return { ok: false, note: found.error };
   }
   const { token, key } = found;
   const out: Warning[] = [];
@@ -453,7 +494,7 @@ async function checkVitals(c: Claim, cfg: Config): Promise<string | null> {
           })
           .filter((w): w is Warning => !!w)
           .sort((a, b) => num(b.data?.rate) - num(a.data?.rate))
-          .slice(0, 3)
+          .slice(0, 10) // every model over the limit (top 3 made cards come and go as the order changed)
           .forEach((w) => out.push(w));
       }
     } catch (e) {
@@ -490,7 +531,7 @@ async function checkVitals(c: Claim, cfg: Config): Promise<string | null> {
     try {
       const res = await gcall<{ errorIssues?: { name: string; type?: string; cause?: string; location?: string; distinctUsers?: string; distinctUsersPercent?: { value?: string }; issueUri?: string; firstAppVersion?: { versionCode?: string } }[] }>(
         token,
-        `${REP}/apps/${c.package}/errorIssues:search?pageSize=5&orderBy=${encodeURIComponent("distinctUsers desc")}&filter=${encodeURIComponent(`versionCode = ${pv.live_code}`)}`,
+        `${REP}/apps/${c.package}/errorIssues:search?pageSize=20&orderBy=${encodeURIComponent("distinctUsers desc")}&filter=${encodeURIComponent(`versionCode = ${pv.live_code}`)}`,
       );
       reached++;
       for (const i of res.errorIssues ?? []) {
@@ -501,7 +542,7 @@ async function checkVitals(c: Claim, cfg: Config): Promise<string | null> {
           kind: "new_crash", severity: share >= cfg.crash_limit ? "critical" : "warning",
           fingerprint: `vitals:new_crash:${i.name}`,
           title: `New ${i.type === "APPLICATION_NOT_RESPONDING" ? "ANR" : "crash"} in live version ${pv.live_version ?? pv.live_code}: ${i.cause ?? "unknown cause"}`,
-          detail: `${users} users${Number.isFinite(share) ? ` (${(share * 100).toFixed(2)}%)` : ""} in the last day${i.location ? `, at ${i.location}` : ""}. First seen in this build.`,
+          detail: `${users} users${Number.isFinite(share) ? ` (${(share * 100).toFixed(2)}%)` : ""} affected${i.location ? `, at ${i.location}` : ""}. First seen in this build.`,
           action_url: i.issueUri ?? "https://play.google.com/console",
         });
       }
@@ -524,11 +565,12 @@ async function checkVitals(c: Claim, cfg: Config): Promise<string | null> {
         : notes.join("; "),
       action_url: "/admin/google-play",
     }]);
-    return disabled ? null : notes.join("; ");
+    return { ok: false, note: notes.join("; ") };
   }
-  await sync(c.project_id, "vitals", out);
+  // a part that failed keeps its cards as they were (a partial read must not clear them)
+  await sync(c.project_id, "vitals", out, notes.length === 0);
   await sync(c.project_id, "monitor_vitals", []);
-  return notes.length ? notes.join("; ") : null;
+  return { ok: true, note: notes.length ? notes.join("; ") : null };
 }
 
 // ── apps with no project yet (0059) ────────────────────────────────────────────────────────
@@ -586,6 +628,8 @@ export async function runMonitor(): Promise<{ done: { project: string; check: st
   const done: { project: string; check: string; ok: boolean; note: string | null }[] = [];
   const { data: cfg } = await supabase.from("app_monitor_config").select("*").maybeSingle();
   if (!cfg?.enabled) return { done };
+  const listed = await refreshDueKey();
+  if (listed) return { done: [listed] }; // its own run, like adopting
   const adopted = await adoptOne();
   if (adopted) return { done: [adopted] }; // its own run: adopting and checking won't both fit
   const { data: claims, error } = await supabase.rpc("monitor_claim", { p_limit: 1 });
@@ -595,12 +639,16 @@ export async function runMonitor(): Promise<{ done: { project: string; check: st
   let note: string | null = null;
   let ok = true;
   try {
-    note = c.check === "vitals" ? await checkVitals(c, cfg as Config) : await checkPlay(c, cfg as Config);
+    ({ ok, note } = c.check === "vitals" ? await checkVitals(c, cfg as Config) : await checkPlay(c, cfg as Config));
   } catch (e) {
     ok = false;
     note = e instanceof Error ? e.message : String(e);
   }
-  await supabase.rpc("monitor_done", { p_project: c.project_id, p_check: c.check, p_ok: ok, p_error: note ?? undefined });
+  const { error: doneError } = await supabase.rpc("monitor_done", {
+    p_project: c.project_id, p_check: c.check, p_ok: ok, p_error: note ?? undefined,
+  });
+  // if even this fails (request limit), monitor_claim counts the run as failed after 10 minutes
+  if (doneError) note = `${note ?? ""} (recording the result failed: ${doneError.message})`.trim();
   done.push({ project: c.project_name, check: c.check, ok, note });
   return { done };
 }

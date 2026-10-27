@@ -14,6 +14,8 @@ export type EmailItem = {
   status: string;
   event: string;
   link: string;
+  /** "task" for task notifications (emailed since 0060); bugs and app warnings leave it out. */
+  item?: "task";
 };
 
 export type EmailKind = "instant" | "critical" | "batch" | "digest";
@@ -35,8 +37,11 @@ const eventLabel = (e: string) => EVENT_LABELS[e] ?? words(e);
 const bugs = (n: number) => `${n} bug${n === 1 ? "" : "s"}`;
 // App warnings (migration 0056) ride the same outbox as critical emails; they are counted as warnings.
 const isWarning = (i: EmailItem) => i.event === "app_warning";
-const counted = (items: EmailItem[]) =>
-  items.every(isWarning) ? `${items.length} warning${items.length === 1 ? "" : "s"}` : bugs(items.length);
+const isTask = (i: EmailItem) => i.item === "task";
+/** "bug", "task" or "warning" when every item is one, else "update". */
+const noun = (items: EmailItem[]) =>
+  items.every(isWarning) ? "warning" : items.every(isTask) ? "task" : items.some(isTask) ? "update" : "bug";
+const counted = (items: EmailItem[]) => `${items.length} ${noun(items)}${items.length === 1 ? "" : "s"}`;
 
 function esc(s: string): string {
   return s
@@ -72,7 +77,12 @@ function byProject(items: EmailItem[]): ProjectGroup[] {
 
 function subjectOf(kind: EmailKind, items: EmailItem[], groups: ProjectGroup[]): string {
   const first = items[0];
-  if (kind === "critical" && isWarning(first)) return `[Catalyst] APP WARNING: ${first.title} (${first.project})`;
+  if (kind === "critical" && isWarning(first)) {
+    // warnings found together are one email (0060)
+    return items.length === 1
+      ? `[Catalyst] APP WARNING: ${first.title} (${first.project})`
+      : `[Catalyst] ${items.length} APP WARNINGS: ${first.title} (${first.project}) and ${items.length - 1} more`;
+  }
   if (kind === "critical") return `[Catalyst] CRITICAL: ${first.title} (${first.project})`;
   if (kind === "instant") return `[Catalyst] ${eventLabel(first.event)}: ${first.title} (${first.project})`;
   const where =
@@ -87,9 +97,13 @@ function subjectOf(kind: EmailKind, items: EmailItem[], groups: ProjectGroup[]):
 
 function intro(kind: EmailKind, items: EmailItem[], groups: ProjectGroup[]): string {
   const across = groups.length > 1 ? `, in ${groups.length} projects` : "";
-  if (kind === "critical" && items.every(isWarning)) return "A critical warning about one of your apps needs your attention:";
+  if (kind === "critical" && items.every(isWarning)) {
+    return items.length === 1
+      ? "A critical warning about one of your apps needs your attention:"
+      : `${items.length} critical warnings about your apps need your attention:`;
+  }
   if (kind === "critical") return "A critical bug needs your attention:";
-  if (kind === "instant") return "A bug you follow changed:";
+  if (kind === "instant") return `A ${noun(items) === "task" ? "task" : "bug"} you follow changed:`;
   if (kind === "digest") return `Your daily summary of ${bugs(items.length)}${across}:`;
   return `${bugs(items.length)} you follow changed${across}:`;
 }
@@ -143,7 +157,7 @@ export function renderEmail(kind: EmailKind, items: EmailItem[]): RenderedEmail 
 </table>
 <table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;font-size:14px;margin:0 0 18px">
 <thead><tr style="text-align:left;color:#475569;font-size:12px;text-transform:uppercase">
-  <th style="padding:6px 10px;background:#f1f5f9">ID</th><th style="padding:6px 10px;background:#f1f5f9">Bug</th><th style="padding:6px 10px;background:#f1f5f9">Severity</th><th style="padding:6px 10px;background:#f1f5f9">Status</th>
+  <th style="padding:6px 10px;background:#f1f5f9">ID</th><th style="padding:6px 10px;background:#f1f5f9">${words(noun(g.items))}</th><th style="padding:6px 10px;background:#f1f5f9">${g.items.every(isTask) ? "Priority" : "Severity"}</th><th style="padding:6px 10px;background:#f1f5f9">Status</th>
 </tr></thead>
 <tbody>
 ${rows}
