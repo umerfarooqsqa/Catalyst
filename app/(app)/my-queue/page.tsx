@@ -8,7 +8,9 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader, Badge, EmptyState, cx } from "@/components/ui";
 import { SEVERITY_LABELS } from "@/lib/severity";
 import { fmtDate, fmtDateTime, titleCase } from "@/lib/format";
-import { BugQueueActions, TaskQueueActions, DelegateSelect, VerifyFixActions, WarningCloseAction } from "@/components/QueueActions";
+import { BugQueueActions, TaskQueueActions, DelegateSelect, VerifyFixActions } from "@/components/QueueActions";
+import AppWarningsSection, { type AppVersions, type AppWarningItem } from "@/components/AppWarningsSection";
+import { warningLevel } from "@/lib/monitor/levels";
 import type { JuniorOption } from "@/components/QueueActions";
 import { isAdmin, isLeadDeveloper } from "@/lib/permissions";
 
@@ -28,14 +30,6 @@ const STATUS_TONE: Record<string, Tone> = {
 };
 const SEVERITY_TONE: Record<string, Tone> = { critical: "red", major: "amber" };
 const PRIORITY_TONE: Record<string, Tone> = { high: "red", medium: "slate", low: "slate" };
-// Where an app warning came from (migration 0056, lib/monitor).
-const WARNING_SOURCE: Record<string, string> = {
-  releases: "Play release",
-  vitals: "Android vitals",
-  target_api: "Target API",
-  portal: "Portal",
-  play_email: "Play email",
-};
 
 function DueChip({ due }: { due: string | null }) {
   if (!due) return <span className="text-[11px] text-slate-400">No due date</span>;
@@ -194,25 +188,63 @@ export default async function MyQueuePage() {
         .order("updated_at", { ascending: false })
         .limit(200)
     : { data: null };
-  // App health members only (role category app_health, migration 0058): serious warnings about
-  // each Android app, checked in the cloud every few minutes (lib/monitor/run.ts). Amber ones and
-  // the monitor's own problems are listed on Admin -> Google Play instead. A card stays until
-  // someone closes it, and comes back if its condition is still true at the next check.
+  // App health members only (role category app_health, migration 0058): warnings about each
+  // Android app, checked in the cloud every few minutes (lib/monitor/run.ts). Since 2026-10-27
+  // every open one is listed, filed as critical / not critical / negligible (lib/monitor/levels.ts),
+  // and each card opens to the app's versions on Play. A card stays until someone closes it, and
+  // comes back if its condition is still true at the next check.
   const appHealth = (profile.skills ?? []).includes("app_health");
   const { data: warningRows } = appHealth
     ? await supabase
         .from("app_warnings")
         .select(
-          "id, project_id, source, kind, severity, title, detail, action_url, active, first_seen_at, cleared_at, reopened_count, projects(name)",
+          "id, project_id, source, kind, severity, title, detail, action_url, active, data, first_seen_at, last_seen_at, cleared_at, reopened_count, projects(name, current_version, android_package)",
         )
         .eq("status", "open")
-        .eq("severity", "critical")
-        // app problems, and "checks have stopped" (0060); other monitor notes are admin-page only
-        .or("source.not.like.monitor%,source.like.monitor_stale%")
         .order("last_seen_at", { ascending: false })
-        .limit(300)
+        .limit(500)
     : { data: null };
-  const appWarnings = [...(warningRows ?? [])].sort((a, b) => (a.projects?.name ?? "").localeCompare(b.projects?.name ?? ""));
+  const appWarnings: AppWarningItem[] = [...(warningRows ?? [])]
+    .sort((a, b) => (a.projects?.name ?? "").localeCompare(b.projects?.name ?? ""))
+    .map(({ projects: _p, ...w }) => ({ ...w, level: warningLevel(w) }));
+  const warnApps: Record<string, AppVersions> = {};
+  if (warningRows?.length) {
+    const ids = [...new Set(warningRows.map((w) => w.project_id))];
+    const { data: pvs } = await supabase
+      .from("play_versions")
+      .select("project_id, package, live_version, live_code, upcoming_version, upcoming_code, upcoming_status, upcoming_track, upcoming_fraction, checked_at")
+      .in("project_id", ids);
+    const codes = [...new Set((pvs ?? []).flatMap((v) => [v.live_code, v.upcoming_code]).filter((c): c is number => c !== null))];
+    const { data: builds } = codes.length
+      ? await supabase
+          .from("play_builds")
+          .select("package, version_code, target_sdk, min_sdk")
+          .in("package", [...new Set((pvs ?? []).map((v) => v.package))])
+          .in("version_code", codes)
+      : { data: [] };
+    const sdk = new Map((builds ?? []).map((b) => [`${b.package}:${b.version_code}`, b]));
+    const pvOf = new Map((pvs ?? []).map((v) => [v.project_id, v]));
+    const build = (pkg: string, version: string | null, code: number | null) => {
+      if (version === null && code === null) return null;
+      const b = code !== null ? sdk.get(`${pkg}:${code}`) : undefined;
+      return { version, code, target: b?.target_sdk ?? null, min: b?.min_sdk ?? null };
+    };
+    for (const w of warningRows) {
+      if (warnApps[w.project_id]) continue;
+      const pv = pvOf.get(w.project_id);
+      const up = pv ? build(pv.package, pv.upcoming_version, pv.upcoming_code) : null;
+      warnApps[w.project_id] = {
+        name: w.projects?.name ?? "?",
+        package: w.projects?.android_package ?? pv?.package ?? null,
+        tested: w.projects?.current_version ?? null,
+        live: pv ? build(pv.package, pv.live_version, pv.live_code) : null,
+        upcoming: up && pv
+          ? { ...up, status: pv.upcoming_status, track: pv.upcoming_track, fraction: pv.upcoming_fraction }
+          : null,
+        checkedAt: pv?.checked_at ?? null,
+      };
+    }
+  }
 
   const markedFixed = new Map<string, { by: string | null; at: string }>();
   if (fixedBugs?.length) {
@@ -248,42 +280,7 @@ export default async function MyQueuePage() {
         }
       />
 
-      {appWarnings.length > 0 ? (
-        <>
-          <h2 className="mb-2 text-sm font-semibold text-red-700">
-            App warnings ({appWarnings.length})
-            <span className="ml-1 font-normal text-slate-500">· serious problems found on Google Play, for App health</span>
-          </h2>
-          <ul className="mb-8 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
-            {appWarnings.map((w) => (
-              <QueueCard
-                key={w.id}
-                id={`w-${w.id}`}
-                tone="red"
-                href={w.action_url ?? `/projects/${w.project_id}`}
-                title={w.title}
-                project={w.projects?.name}
-                detail={w.detail}
-                badges={
-                  <>
-                    <Badge tone="slate">{WARNING_SOURCE[w.source] ?? "Monitor"}</Badge>
-                    {!w.active ? <Badge tone="green">Condition cleared</Badge> : null}
-                    {w.reopened_count > 0 ? <Badge tone="violet">Back again</Badge> : null}
-                  </>
-                }
-                actions={
-                  <>
-                    <WarningCloseAction warningId={w.id} />
-                    <span className="text-xs text-slate-500">
-                      Since <LocalTime value={w.first_seen_at} />
-                    </span>
-                  </>
-                }
-              />
-            ))}
-          </ul>
-        </>
-      ) : null}
+      {appWarnings.length > 0 ? <AppWarningsSection items={appWarnings} apps={warnApps} /> : null}
 
       {admin ? (
         <>
