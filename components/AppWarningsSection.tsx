@@ -7,6 +7,7 @@ import { Badge, cx } from "@/components/ui";
 import { WarningCloseAction } from "@/components/QueueActions";
 import { LEVELS, warningFacts, type WarningLevel } from "@/lib/monitor/levels";
 import { androidName } from "@/lib/monitor/rules";
+import { createClient } from "@/lib/supabase/client";
 
 /** One build of the app as Play has it, with the target SDK read from it (play_builds, 0059). */
 export type AppBuild = { version: string | null; code: number | null; target: number | null; min: number | null };
@@ -194,7 +195,62 @@ function WarningCard({ w, app, open, onToggle }: { w: AppWarningItem; app: AppVe
  * opening in place to the full text, the app's versions on Play and the warning's own facts.
  * A link to /my-queue#w-<id> (bell, push, email) picks that card's tab and opens it.
  */
-export default function AppWarningsSection({ items, apps }: { items: AppWarningItem[]; apps: Record<string, AppVersions> }) {
+/**
+ * "Email me" for one tab (0063): this person's switch in app_warning_email_prefs; the bell follows
+ * it, so cards, bells and emails stay equal. Saved at once; a failed save puts the switch back.
+ */
+function EmailSwitch({ level, userId, on, onChange }: { level: WarningLevel; userId: string; on: boolean; onChange: (v: boolean) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function flip() {
+    const next = !on;
+    setBusy(true);
+    setErr(null);
+    onChange(next);
+    const { error } = await createClient()
+      .from("app_warning_email_prefs")
+      .upsert({ user_id: userId, category: level, enabled: next, updated_at: new Date().toISOString() });
+    setBusy(false);
+    if (error) {
+      onChange(!next);
+      setErr(error.message);
+    }
+  }
+  return (
+    <span className="inline-flex items-center gap-2">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        disabled={busy}
+        onClick={flip}
+        className={cx("relative h-4 w-7 shrink-0 rounded-full transition-colors disabled:opacity-60", on ? "bg-brand" : "bg-slate-300")}
+      >
+        <span className={cx("absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all", on ? "left-3.5" : "left-0.5")} />
+      </button>
+      <span className="text-xs text-slate-600">
+        {on ? "Emails on: new warnings here email you and ring the bell" : "Emails off: these stay in My Queue only"}
+      </span>
+      {err ? <span className="text-xs text-red-600">{err}</span> : null}
+    </span>
+  );
+}
+
+export default function AppWarningsSection({
+  items,
+  apps,
+  userId,
+  emailPrefs,
+}: {
+  items: AppWarningItem[];
+  apps: Record<string, AppVersions>;
+  userId: string;
+  /** this person's switches; a tab without a row keeps its default (LEVELS emailDefault) */
+  emailPrefs: Partial<Record<WarningLevel, boolean>>;
+}) {
+  const [emailOn, setEmailOn] = useState<Record<WarningLevel, boolean>>(
+    () => Object.fromEntries(LEVELS.map((l) => [l.key, emailPrefs[l.key] ?? l.emailDefault])) as Record<WarningLevel, boolean>,
+  );
   const counts = Object.fromEntries(LEVELS.map((l) => [l.key, items.filter((w) => w.level === l.key).length])) as Record<WarningLevel, number>;
   const [level, setLevel] = useState<WarningLevel>(() => LEVELS.find((l) => counts[l.key] > 0)?.key ?? "critical");
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -243,6 +299,11 @@ export default function AppWarningsSection({ items, apps }: { items: AppWarningI
             )}
           >
             {l.label}
+            {emailOn[l.key] ? (
+              <span title="Emails on" aria-label="emails on">
+                ✉
+              </span>
+            ) : null}
             <span className={cx("rounded-full px-1.5 text-[10px] leading-4", counts[l.key] ? TONE[l.key].count : "bg-slate-100 text-slate-500")}>
               {counts[l.key]}
             </span>
@@ -258,7 +319,10 @@ export default function AppWarningsSection({ items, apps }: { items: AppWarningI
           </button>
         ) : null}
       </div>
-      <p className="mb-2 text-xs text-slate-500">{hint}</p>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-slate-500">{hint}</p>
+        <EmailSwitch level={level} userId={userId} on={emailOn[level]} onChange={(v) => setEmailOn((s) => ({ ...s, [level]: v }))} />
+      </div>
       {shown.length > 0 ? (
         <ul className="grid items-start gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
           {shown.map((w) => (

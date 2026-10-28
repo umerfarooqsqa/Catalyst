@@ -1072,6 +1072,27 @@ export type Database = {
           },
         ]
       }
+      app_warning_email_prefs: {
+        Row: {
+          category: string
+          enabled: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          category: string
+          enabled: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          category?: string
+          enabled?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       app_warnings: {
         Row: {
           action_url: string | null

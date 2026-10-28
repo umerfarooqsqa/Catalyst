@@ -26,13 +26,14 @@ import { androidName } from "@/lib/monitor/rules";
 
 export type WarningLevel = "critical" | "new_crashes" | "rates" | "live_bugs" | "not_critical" | "negligible";
 
-export const LEVELS: { key: WarningLevel; label: string; hint: string }[] = [
-  { key: "critical", label: "Critical", hint: "App suspended or Play policy, target API compliance. Emailed." },
-  { key: "new_crashes", label: "New crashes in live build", hint: "A crash or ANR first seen in the build users have now, hitting enough of them (Android vitals). Emailed." },
-  { key: "rates", label: "Crash & ANR rates", hint: "Crash or ANR rate over Google's limit, overall or on a phone model (Android vitals, last 28 days). Emailed." },
-  { key: "live_bugs", label: "Critical bugs on live", hint: "Critical bugs logged in catalyst that are still open on the version users have now. Emailed." },
-  { key: "not_critical", label: "Not critical", hint: "Getting close, or worth a look. Not emailed." },
-  { key: "negligible", label: "Negligible", hint: "Already cleared, or a note about the checker itself. Not emailed." },
+/** emailDefault: emailed (and belled) until the person switches it (0063 app_warning_emails_on). */
+export const LEVELS: { key: WarningLevel; label: string; hint: string; emailDefault: boolean }[] = [
+  { key: "critical", label: "Critical", hint: "App suspended or Play policy, target API compliance.", emailDefault: true },
+  { key: "new_crashes", label: "New crashes in live build", hint: "A crash or ANR first seen in the build users have now, hitting enough of them (Android vitals).", emailDefault: true },
+  { key: "rates", label: "Crash & ANR rates", hint: "Crash or ANR rate over Google's limit, overall or on a phone model (Android vitals, last 28 days).", emailDefault: true },
+  { key: "live_bugs", label: "Critical bugs on live", hint: "Critical bugs logged in catalyst that are still open on the version users have now.", emailDefault: true },
+  { key: "not_critical", label: "Not critical", hint: "Getting close, or worth a look.", emailDefault: false },
+  { key: "negligible", label: "Negligible", hint: "Already cleared, or a note about the checker itself.", emailDefault: false },
 ];
 
 /** The kinds that ring and are emailed (A-F above: Critical + Critical bugs on live); SQL: app_warning_is_critical (0062). */

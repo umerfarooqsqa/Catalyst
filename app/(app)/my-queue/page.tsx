@@ -239,6 +239,11 @@ export default async function MyQueuePage() {
         .filter((b) => b.release_id === releaseOf.get(w.id))
         .map((b) => ({ id: b.id, title: b.title, status: b.status, assignee: b.assignee?.full_name ?? null }));
   }
+  // this person's "Email me" switch per tab (0063)
+  const { data: prefRows } = appHealth
+    ? await supabase.from("app_warning_email_prefs").select("category, enabled").eq("user_id", userId)
+    : { data: null };
+  const emailPrefs = Object.fromEntries((prefRows ?? []).map((p) => [p.category, p.enabled]));
   const warnApps: Record<string, AppVersions> = {};
   if (warningRows?.length) {
     const ids = [...new Set(warningRows.map((w) => w.project_id))];
@@ -312,7 +317,7 @@ export default async function MyQueuePage() {
         }
       />
 
-      {appWarnings.length > 0 ? <AppWarningsSection items={appWarnings} apps={warnApps} /> : null}
+      {appWarnings.length > 0 ? <AppWarningsSection items={appWarnings} apps={warnApps} userId={userId} emailPrefs={emailPrefs} /> : null}
 
       {admin ? (
         <>
