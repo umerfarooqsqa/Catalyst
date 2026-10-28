@@ -37,6 +37,16 @@ type Props = {
   seed?: BasePageEntry | null;
 };
 
+/**
+ * Which Bug Library entries to suggest for a project of this platform: its own list plus
+ * unassigned ones (old Android/iOS entries nobody classified). A Tradecast project (0064) gets
+ * the Tradecast list only; a project with no platform gets every list.
+ */
+function libraryFilter(platform: string | null): string {
+  if (platform === "tradecast") return "platform.eq.tradecast";
+  return platform ? `platform.eq.${platform},platform.is.null` : "platform.not.is.null,platform.is.null";
+}
+
 export default function NewBugDialog({
   projectId,
   categories,
@@ -131,7 +141,7 @@ export default function NewBugDialog({
         .from("base_page")
         .select("*")
         .eq("source_type", "master_bug")
-        .or(platform ? `platform.eq.${platform},platform.is.null` : "platform.not.is.null,platform.is.null")
+        .or(libraryFilter(platform))
         .ilike("title", `%${q}%`)
         .limit(5);
 
@@ -152,7 +162,7 @@ export default function NewBugDialog({
           .from("base_page")
           .select("*")
           .eq("source_type", "master_bug")
-          .or(platform ? `platform.eq.${platform},platform.is.null` : "platform.not.is.null,platform.is.null")
+          .or(libraryFilter(platform))
           .or(words.map((w) => `title.ilike.%${w}%`).join(","))
           .limit(8);
         byWord = data ?? [];

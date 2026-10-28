@@ -1,4 +1,4 @@
-import { requireProfile, getProjects } from "@/lib/auth";
+import { requireProfile, getProjects, getUserPlatform } from "@/lib/auth";
 import AppShell from "@/components/AppShell";
 import { RoleCategoriesProvider } from "@/components/RoleCategories";
 import { getRoleCategories } from "@/lib/data";
@@ -8,10 +8,11 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const [{ userId, profile, level }, projects, roleCategories] = await Promise.all([
+  const [{ userId, profile, level }, projects, roleCategories, userPlatform] = await Promise.all([
     requireProfile(),
     getProjects(),
     getRoleCategories(),
+    getUserPlatform(),
   ]);
 
   return (
@@ -19,6 +20,7 @@ export default async function AppLayout({
     <AppShell
       userId={userId}
       projects={projects}
+      userPlatform={userPlatform}
       level={level}
       roleLabel={profile.roles?.label ?? "Viewer"}
       fullName={profile.full_name}

@@ -7,6 +7,7 @@ import type { Project, RoleLevel } from "@/lib/types/models";
 import { canAdminister, canSeeAutomation, canManageProjects } from "@/lib/permissions";
 import AndroidAppButton from "@/components/AndroidAppButton";
 import { forgetPushOnThisDevice } from "@/lib/push-client";
+import { isTradecast, seesMain, seesTradecast } from "@/lib/tradecast";
 
 /* --- tiny inline icon set (16px, currentColor) --- */
 const I = {
@@ -21,6 +22,7 @@ const I = {
   clock: "M8 3.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM8 5.5V8l1.8 1",
   tag: "M2.5 2.5h5L14 9l-4.5 4.5L3 7V2.5zM5 5a.6.6 0 1 0 0-1.2A.6.6 0 0 0 5 5z",
   play: "M5 3.2v9.6L12.5 8z",
+  signal: "M2.5 12.5 6 8l2.5 2.5L13.5 4M10.5 4h3v3",
 } as const;
 
 function Icon({ d }: { d: string }) {
@@ -43,13 +45,16 @@ function Icon({ d }: { d: string }) {
 
 export default function Sidebar({
   projects,
+  userPlatform,
   level,
   roleLabel,
   fullName,
   onNavigate,
   onCollapse,
 }: {
-  projects: Pick<Project, "id" | "name">[];
+  projects: Pick<Project, "id" | "name" | "platform">[];
+  /** null = every platform; 'tradecast' = only the Tradecast area (0064) */
+  userPlatform: string | null;
   level: RoleLevel;
   roleLabel: string;
   fullName: string;
@@ -58,7 +63,13 @@ export default function Sidebar({
 }) {
   const pathname = usePathname();
   const active = (href: string) =>
-    pathname === href || pathname.startsWith(href + "/");
+    // /tradecast/library is its own link, so the Tradecast projects link matches only itself
+    pathname === href || (href !== "/tradecast" && pathname.startsWith(href + "/"));
+  // Tradecast is its own area (0064): its own section, never in the main project list
+  const mainProjects = projects.filter((p) => !isTradecast(p));
+  const tradecastProjects = projects.filter(isTradecast);
+  const main = seesMain(userPlatform);
+  const tradecast = seesTradecast(userPlatform);
 
   const NavLink = ({
     href,
@@ -132,40 +143,71 @@ export default function Sidebar({
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
         <NavLink href="/dashboard" label="Home" icon="home" />
         <NavLink href="/my-queue" label="My Queue" icon="queue" />
-        <NavLink href="/master-library" label="Bug Library" icon="library" />
+        {main && <NavLink href="/master-library" label="Bug Library" icon="library" />}
         {canSeeAutomation(level) && <NavLink href="/automation" label="Automation" icon="robot" />}
         <NavLink href="/notifications" label="Notifications" icon="bell" />
 
-        <SectionLabel
-          action={
-            canManageProjects(level) && (
-              <Link
-                href="/projects?new=1"
-                onClick={onNavigate}
-                title="New project"
-                aria-label="New project"
-                className="-my-1 rounded-md px-1.5 text-base leading-none text-brand-fg hover:bg-white"
-              >
-                +
-              </Link>
-            )
-          }
-        >
-          Projects
-        </SectionLabel>
-        {projects.length === 0 ? (
-          <p className="px-2.5 text-xs text-slate-400">No projects yet</p>
-        ) : (
-          projects.map((p) => (
-            <NavLink
-              key={p.id}
-              href={`/projects/${p.id}`}
-              label={p.name}
-              icon="folder"
-            />
-          ))
+        {main && (
+          <>
+            <SectionLabel
+              action={
+                canManageProjects(level) && (
+                  <Link
+                    href="/projects?new=1"
+                    onClick={onNavigate}
+                    title="New project"
+                    aria-label="New project"
+                    className="-my-1 rounded-md px-1.5 text-base leading-none text-brand-fg hover:bg-white"
+                  >
+                    +
+                  </Link>
+                )
+              }
+            >
+              Projects
+            </SectionLabel>
+            {mainProjects.length === 0 ? (
+              <p className="px-2.5 text-xs text-slate-400">No projects yet</p>
+            ) : (
+              mainProjects.map((p) => (
+                <NavLink
+                  key={p.id}
+                  href={`/projects/${p.id}`}
+                  label={p.name}
+                  icon="folder"
+                />
+              ))
+            )}
+            <NavLink href="/projects" label="All projects" />
+          </>
         )}
-        <NavLink href="/projects" label="All projects" />
+
+        {tradecast && (
+          <>
+            <SectionLabel
+              action={
+                canManageProjects(level) && (
+                  <Link
+                    href="/tradecast?new=1"
+                    onClick={onNavigate}
+                    title="New Tradecast project"
+                    aria-label="New Tradecast project"
+                    className="-my-1 rounded-md px-1.5 text-base leading-none text-brand-fg hover:bg-white"
+                  >
+                    +
+                  </Link>
+                )
+              }
+            >
+              Tradecast
+            </SectionLabel>
+            <NavLink href="/tradecast/library" label="Tradecast Bug Library" icon="library" />
+            {tradecastProjects.map((p) => (
+              <NavLink key={p.id} href={`/projects/${p.id}`} label={p.name} icon="signal" />
+            ))}
+            <NavLink href="/tradecast" label={tradecastProjects.length ? "All Tradecast projects" : "Tradecast projects"} />
+          </>
+        )}
 
         {canAdminister(level) && (
           <>

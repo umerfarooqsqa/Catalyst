@@ -5,7 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { Button, Card } from "@/components/ui";
 import { createProject } from "./actions";
 
-export default function NewProjectForm() {
+/** platform "tradecast": the project goes to the Tradecast area (0064); otherwise no platform yet. */
+export default function NewProjectForm({ platform }: { platform?: string }) {
   const params = useSearchParams();
   const [open, setOpen] = useState(params.get("new") === "1");
 
@@ -16,8 +17,9 @@ export default function NewProjectForm() {
   return (
     <Card className="mb-4 p-4">
       <form action={createProject} className="space-y-3">
+        {platform ? <input type="hidden" name="platform" value={platform} /> : null}
         <div className="flex items-center justify-between">
-          <h3 className="font-medium text-slate-800">New project</h3>
+          <h3 className="font-medium text-slate-800">{platform === "tradecast" ? "New Tradecast project" : "New project"}</h3>
           <button
             type="button"
             onClick={() => setOpen(false)}

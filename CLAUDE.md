@@ -111,6 +111,12 @@ rewrite.
   - Author role badge, and Ctrl+Enter to post. The insert policy also requires that the commenter can see the bug.
 - **Not covered:** the requirement-documents storage bucket read policy is not platform-filtered, and task comments/drawer still use the old UI.
 
+### Tradecast, a separate area (2026-10-28, migration 0064, decided with the user)
+- **What:** Tradecast has its own projects list (`/tradecast`), its own Bug Library (`/tradecast/library`) and its own sidebar section ("Tradecast": Bug Library, its projects, "+" for a new Tradecast project). The main Projects list, sidebar Projects and Bug Library don't show Tradecast.
+- **How:** a third value of `projects.platform`, `base_page.platform` and `roles.platform` ('tradecast'), so the 0034/0043 visibility rules apply unchanged: the seeded **Tradecast** role (contributor) sees only Tradecast (its sidebar shows only the Tradecast section; `/projects` and `/master-library` redirect it there); Android/iOS developers never see it; admins, QA and cross-platform categories (backend, DBA) see everything. `lib/tradecast.ts` holds the helpers; `getUserPlatform()` (`lib/auth.ts`) reads `user_platform()`.
+- **Where it shows:** `MasterLibrary area="tradecast"` (one list, no Android/iOS tabs or WhatsApp button, copies only into Tradecast projects, Excel import goes to Tradecast), `ProjectsView area="tradecast"` (shared with `/projects`), project Settings → Platform and Admin → Roles offer Tradecast, a Tradecast project's new-bug suggestions come from the Tradecast library only. Automation stays Android/iOS.
+- **Tested** on PGlite with the real visibility functions (13 checks): old check refuses Tradecast before 0064; one platform check per table after, unknown platforms still refused; admin/QA see it, an Android developer doesn't, a Tradecast developer sees only it.
+
 ### Project developer + My Queue actions (2026-09-29, migration 0035; applied and deployed as `80ca7b9a-418c-41e9-9cba-8ed653c51efa`, rollback `npx wrangler rollback 00db2094-2ea6-4832-a887-f4fcfa5c5108`)
 - **"Project developer"** bar on the Bugs page (QA/admin pick one; others see the name). It calls `assign_project_developer(project, developer)`, a SECURITY INVOKER function that is QA/admin only. It:
   - sets `projects.assigned_developer_id`;

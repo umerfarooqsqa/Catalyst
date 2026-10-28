@@ -71,11 +71,14 @@ function guess(headers: string[], ...needles: string[]) {
 export default function ImportBugsDialog({
   categories,
   userId,
+  fixedPlatform,
   onClose,
   onDone,
 }: {
   categories: BugCategory[];
   userId: string;
+  /** "tradecast": importing into the Tradecast Bug Library (0064); no list to choose */
+  fixedPlatform?: "tradecast";
   onClose: () => void;
   onDone: (count: number) => void;
 }) {
@@ -97,7 +100,7 @@ export default function ImportBugsDialog({
   const [existing, setExisting] = useState<{ id: string; title: string }[]>([]);
   const [skipDupes, setSkipDupes] = useState(true);
   // The Master Library is split by platform; an import goes into one list.
-  const [platform, setPlatform] = useState<"android" | "ios">("android");
+  const [platform, setPlatform] = useState<"android" | "ios" | "tradecast">(fixedPlatform ?? "android");
 
   // Pull every master-library title once so the preview can be scanned for
   // rows that duplicate an entry already in the sheet.
@@ -262,6 +265,11 @@ export default function ImportBugsDialog({
         </div>
 
         <div className="space-y-4 p-4">
+          {fixedPlatform ? (
+            <p className="text-[13px] text-slate-600">
+              Import into the <b>Tradecast</b> Bug Library
+            </p>
+          ) : (
           <label className="flex items-center gap-2 text-[13px] text-slate-600">
             Import into
             <select
@@ -273,6 +281,7 @@ export default function ImportBugsDialog({
               <option value="ios">iOS list</option>
             </select>
           </label>
+          )}
           <div>
             <input
               type="file"

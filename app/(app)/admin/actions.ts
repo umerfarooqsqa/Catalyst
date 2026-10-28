@@ -98,7 +98,7 @@ export async function saveRole(formData: FormData) {
   const sort_order = Number(formData.get("sort_order")) || 100;
   // A role tied to a platform sees only that platform's projects (migration 0034).
   const platformRaw = String(formData.get("platform") || "");
-  const platform = platformRaw === "android" || platformRaw === "ios" ? platformRaw : null;
+  const platform = platformRaw === "android" || platformRaw === "ios" || platformRaw === "tradecast" ? platformRaw : null;
 
   if (!label) throw new Error("Label is required");
   if (!ROLE_LEVELS.includes(level)) throw new Error("Invalid permission level");

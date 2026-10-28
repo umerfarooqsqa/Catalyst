@@ -172,7 +172,9 @@ export default async function ProjectSettingsPage({
         <h2 className="mb-1 text-sm font-semibold text-slate-700">Platform</h2>
         <p className="mb-3 text-xs text-slate-500">
           Decides which Master Bug Library list this project connects to: Android
-          projects pull from the Android list, iOS projects from the iOS list.
+          projects pull from the Android list, iOS projects from the iOS list. Tradecast
+          projects live in the separate Tradecast area with its own Bug Library, seen only by
+          the Tradecast team and admins/QA.
         </p>
         {project.house_group || project.house_slug ? (
           <p className="text-sm text-slate-600">
@@ -197,6 +199,7 @@ export default async function ProjectSettingsPage({
               </option>
               <option value="android">Android</option>
               <option value="ios">iOS</option>
+              <option value="tradecast">Tradecast</option>
             </select>
             <button className="w-full rounded-md bg-brand px-3 py-2 text-sm font-medium text-white transition active:scale-95 hover:bg-brand-fg sm:w-auto">
               Save platform

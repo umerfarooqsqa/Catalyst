@@ -14,11 +14,13 @@ export async function createProject(formData: FormData) {
   const name = String(formData.get("name") || "").trim();
   const description = String(formData.get("description") || "").trim() || null;
   if (!name) throw new Error("Name is required");
+  // only the Tradecast list sends one (0064); Android/iOS is set later on Settings, as before
+  const platform = String(formData.get("platform") || "") === "tradecast" ? "tradecast" : null;
 
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("projects")
-    .insert({ name, description, created_by: userId })
+    .insert({ name, description, created_by: userId, platform })
     .select("id")
     .single();
   if (error) throw new Error(error.message);
@@ -102,7 +104,8 @@ export async function updateProjectPlatform(formData: FormData) {
   if (!canAdminister(level)) throw new Error("Not authorized");
   const project_id = String(formData.get("project_id"));
   const platform = String(formData.get("platform") || "");
-  if (platform !== "android" && platform !== "ios") throw new Error("Choose Android or iOS.");
+  if (platform !== "android" && platform !== "ios" && platform !== "tradecast")
+    throw new Error("Choose Android, iOS or Tradecast.");
 
   const supabase = await createClient();
   const { data: project, error: readErr } = await supabase

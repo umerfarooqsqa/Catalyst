@@ -14,13 +14,16 @@ const DESKTOP_MQ = "(min-width: 1024px)";
 export default function AppShell({
   userId,
   projects,
+  userPlatform,
   level,
   roleLabel,
   fullName,
   children,
 }: {
   userId: string;
-  projects: Pick<Project, "id" | "name">[];
+  projects: Pick<Project, "id" | "name" | "platform">[];
+  /** null = every platform; 'tradecast' = only the Tradecast area (0064) */
+  userPlatform: string | null;
   level: RoleLevel;
   roleLabel: string;
   fullName: string;
@@ -83,6 +86,7 @@ export default function AppShell({
       >
         <Sidebar
           projects={projects}
+          userPlatform={userPlatform}
           level={level}
           roleLabel={roleLabel}
           fullName={fullName}

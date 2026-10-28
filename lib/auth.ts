@@ -54,6 +54,16 @@ export const getRoles = cache(async (): Promise<RoleRow[]> => {
   return data ?? [];
 });
 
+/**
+ * The platform the signed-in user is limited to (user_platform(), migrations 0034/0043/0064):
+ * 'android' | 'ios' | 'tradecast', or null = every platform (admins, QA, cross-platform staff).
+ */
+export const getUserPlatform = cache(async (): Promise<string | null> => {
+  const supabase = await createClient();
+  const { data } = await supabase.rpc("user_platform");
+  return (data as string | null) ?? null;
+});
+
 /** All projects (for sidebars / pickers / the project header). One fetch per request. */
 export const getProjects = cache(
   async (): Promise<Pick<Project, "id" | "name" | "description" | "platform">[]> => {

@@ -22,8 +22,9 @@ import type {
   Severity,
 } from "@/lib/types/models";
 
-type Tab = "android" | "ios" | "unassigned";
-const TAB_LABEL: Record<Tab, string> = { android: "Android", ios: "iOS", unassigned: "Unassigned" };
+type Tab = "android" | "ios" | "unassigned" | "tradecast";
+const TAB_LABEL: Record<Tab, string> = { android: "Android", ios: "iOS", unassigned: "Unassigned", tradecast: "Tradecast" };
+type EntryPlatform = "android" | "ios" | "tradecast";
 const other = (p: "android" | "ios") => (p === "android" ? "ios" : "android");
 
 /** The Android list connects only to Android projects and the iOS list only to
@@ -38,12 +39,18 @@ function projectMatchesEntry(
 }
 
 export default function MasterLibrary({
+  area = "main",
   initial,
   categories,
   projects,
   role,
   userId,
 }: {
+  /**
+   * "tradecast": the Tradecast Bug Library (0064), one list of Tradecast entries, kept apart from
+   * the Android/iOS lists; its page passes only Tradecast projects. "main": Android / iOS / Unassigned.
+   */
+  area?: "main" | "tradecast";
   initial: BasePageEntry[];
   categories: BugCategory[];
   projects: Pick<Project, "id" | "name" | "platform">[];
@@ -59,9 +66,11 @@ export default function MasterLibrary({
   const [rows, setRows] = useState(initial);
   // Android and iOS bugs are kept in separate lists; "unassigned" holds
   // entries nobody has classified yet (nothing is guessed).
-  const [tab, setTab] = useState<Tab>("android");
-  const [counts, setCounts] = useState<Record<Tab, number>>({ android: 0, ios: 0, unassigned: 0 });
-  const [np, setNp] = useState<"android" | "ios">("android");
+  const tradecastArea = area === "tradecast";
+  const tabs: Tab[] = tradecastArea ? ["tradecast"] : ["android", "ios", "unassigned"];
+  const [tab, setTab] = useState<Tab>(tradecastArea ? "tradecast" : "android");
+  const [counts, setCounts] = useState<Record<Tab, number>>({ android: 0, ios: 0, unassigned: 0, tradecast: 0 });
+  const [np, setNp] = useState<EntryPlatform>(tradecastArea ? "tradecast" : "android");
   const [q, setQ] = useState("");
   const [fSeverity, setFSeverity] = useState("");
   const [fCategory, setFCategory] = useState("");
@@ -135,8 +144,8 @@ export default function MasterLibrary({
       .select("platform")
       .eq("source_type", "master_bug")
       .then(({ data }) => {
-        const c: Record<Tab, number> = { android: 0, ios: 0, unassigned: 0 };
-        for (const r of data ?? []) c[(r.platform as "android" | "ios" | null) ?? "unassigned"]++;
+        const c: Record<Tab, number> = { android: 0, ios: 0, unassigned: 0, tradecast: 0 };
+        for (const r of data ?? []) c[(r.platform as EntryPlatform | null) ?? "unassigned"]++;
         setCounts(c);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -211,9 +220,7 @@ export default function MasterLibrary({
     const target = projects.find((x) => x.id === projectId);
     if (!target || !projectMatchesEntry(target, mb)) {
       return setErr(
-        `"${mb.title}" is on the ${mb.platform === "ios" ? "iOS" : "Android"} list and can only be copied into ${
-          mb.platform === "ios" ? "iOS" : "Android"
-        } projects.`,
+        `"${mb.title}" is on the ${TAB_LABEL[mb.platform as Tab]} list and can only be copied into ${TAB_LABEL[mb.platform as Tab]} projects.`,
       );
     }
     const { error } = await supabase.from("bugs").insert({
@@ -380,8 +387,12 @@ export default function MasterLibrary({
   return (
     <div>
       <PageHeader
-        title="Master Bug Library"
-        subtitle="Shared across every project, kept separately for Android and iOS. Pulling a bug in copies it as a new, independent row — no live link back."
+        title={tradecastArea ? "Tradecast Bug Library" : "Master Bug Library"}
+        subtitle={
+          tradecastArea
+            ? "Tradecast's own bugs, kept apart from the Android and iOS libraries. Pulling a bug into a Tradecast project copies it as a new, independent row — no live link back."
+            : "Shared across every project, kept separately for Android and iOS. Pulling a bug in copies it as a new, independent row — no live link back."
+        }
         actions={
           <>
             <Button variant="secondary" onClick={doExport}>
@@ -406,6 +417,7 @@ export default function MasterLibrary({
         <ImportBugsDialog
           categories={categories}
           userId={userId}
+          fixedPlatform={tradecastArea ? "tradecast" : undefined}
           onClose={() => setShowImport(false)}
           onDone={(n) => {
             setShowImport(false);
@@ -474,14 +486,20 @@ export default function MasterLibrary({
               className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-xs"
             />
             <div className="grid gap-2 sm:grid-cols-5">
-              <select
-                value={np}
-                onChange={(e) => setNp(e.target.value as "android" | "ios")}
-                className="rounded-md border border-slate-300 px-2 py-2 text-sm"
-              >
-                <option value="android">Android</option>
-                <option value="ios">iOS</option>
-              </select>
+              {tradecastArea ? (
+                <span className="flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-sm text-slate-600">
+                  Tradecast
+                </span>
+              ) : (
+                <select
+                  value={np}
+                  onChange={(e) => setNp(e.target.value as EntryPlatform)}
+                  className="rounded-md border border-slate-300 px-2 py-2 text-sm"
+                >
+                  <option value="android">Android</option>
+                  <option value="ios">iOS</option>
+                </select>
+              )}
               <select
                 value={nsev}
                 onChange={(e) => setNsev(e.target.value as Severity)}
@@ -534,8 +552,9 @@ export default function MasterLibrary({
         </Card>
       )}
 
+      {tabs.length > 1 && (
       <div className="mb-3 flex gap-1 border-b border-slate-200">
-        {(["android", "ios", "unassigned"] as Tab[]).map((t) => (
+        {tabs.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -553,6 +572,7 @@ export default function MasterLibrary({
           </button>
         ))}
       </div>
+      )}
       {tab === "unassigned" && counts.unassigned > 0 && (
         <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
           These entries predate the Android/iOS split. Assign each one to a platform so it shows up in the right list.
@@ -649,7 +669,7 @@ export default function MasterLibrary({
                     >
                       {SEVERITY_LABELS[m.severity]}
                     </Badge>
-                    <Badge tone={m.platform === "ios" ? "amber" : m.platform === "android" ? "green" : "slate"}>
+                    <Badge tone={m.platform === "ios" ? "amber" : m.platform === "android" ? "green" : m.platform === "tradecast" ? "violet" : "slate"}>
                       {m.platform ? TAB_LABEL[m.platform as Tab] : "Unassigned"}
                     </Badge>
                     {canManage ? (
@@ -732,7 +752,7 @@ export default function MasterLibrary({
                       </button>
                     </div>
                   )}
-                  {canManage && m.platform && (
+                  {canManage && m.platform && m.platform !== "tradecast" && (
                     <button
                       onClick={() => copyToPlatform(m, other(m.platform as "android" | "ios"))}
                       className="text-xs text-brand-fg hover:underline"

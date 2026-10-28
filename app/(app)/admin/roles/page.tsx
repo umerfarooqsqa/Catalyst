@@ -82,6 +82,7 @@ function RoleForm({
             <option value="">All platforms</option>
             <option value="android">Android only</option>
             <option value="ios">iOS only</option>
+            <option value="tradecast">Tradecast only</option>
           </Select>
         </FormRow>
 
