@@ -198,7 +198,7 @@ export default async function MyQueuePage() {
     ? await supabase
         .from("app_warnings")
         .select(
-          "id, project_id, source, kind, severity, title, detail, action_url, active, data, first_seen_at, last_seen_at, cleared_at, reopened_count, projects(name, current_version, android_package)",
+          "id, project_id, source, kind, severity, title, detail, action_url, active, data, bug_id, first_seen_at, last_seen_at, cleared_at, reopened_count, projects(name, current_version, android_package)",
         )
         .eq("status", "open")
         .order("last_seen_at", { ascending: false })
@@ -207,6 +207,18 @@ export default async function MyQueuePage() {
   const appWarnings: AppWarningItem[] = [...(warningRows ?? [])]
     .sort((a, b) => (a.projects?.name ?? "").localeCompare(b.projects?.name ?? ""))
     .map(({ projects: _p, ...w }) => ({ ...w, level: warningLevel(w) }));
+  // Critical cards are filed as bugs (0065): the card opens its bug and shows where it stands
+  const filedIds = [...new Set(appWarnings.map((w) => w.bug_id).filter((id): id is string => !!id))];
+  if (filedIds.length) {
+    const { data: filed } = await supabase
+      .from("bugs")
+      .select("id, status, assignee:profiles!bugs_assignee_id_fkey(full_name)")
+      .in("id", filedIds);
+    for (const w of appWarnings) {
+      const b = filed?.find((x) => x.id === w.bug_id);
+      if (b) w.bug = { id: b.id, status: b.status, assignee: b.assignee?.full_name ?? null };
+    }
+  }
   // "Critical bugs on live" cards list the bugs, by the release the monitor counted (data.release_id,
   // or the version in the fingerprint for cards found before 2026-10-28)
   const liveCards = appWarnings.filter((w) => w.kind === "critical_bugs_live");

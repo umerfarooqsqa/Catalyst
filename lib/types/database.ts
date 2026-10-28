@@ -1097,6 +1097,8 @@ export type Database = {
         Row: {
           action_url: string | null
           active: boolean
+          bug_filed_at: string | null
+          bug_id: string | null
           cleared_at: string | null
           close_note: string | null
           notified_at: string | null
@@ -1120,6 +1122,8 @@ export type Database = {
         Insert: {
           action_url?: string | null
           active?: boolean
+          bug_filed_at?: string | null
+          bug_id?: string | null
           cleared_at?: string | null
           close_note?: string | null
           notified_at?: string | null
@@ -1143,6 +1147,8 @@ export type Database = {
         Update: {
           action_url?: string | null
           active?: boolean
+          bug_filed_at?: string | null
+          bug_id?: string | null
           cleared_at?: string | null
           close_note?: string | null
           notified_at?: string | null

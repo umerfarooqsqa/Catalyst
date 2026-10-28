@@ -39,6 +39,9 @@ export type AppWarningItem = {
   last_seen_at: string;
   cleared_at: string | null;
   reopened_count: number;
+  /** The bug a Critical card was filed as (0065), when this person can see it. */
+  bug_id: string | null;
+  bug?: { id: string; status: string; assignee: string | null };
   /** "Critical bugs on live" cards: the bugs themselves (open, in progress or reopened). */
   bugs?: { id: string; title: string; status: string; assignee: string | null }[];
 };
@@ -81,8 +84,10 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 function WarningCard({ w, app, open, onToggle }: { w: AppWarningItem; app: AppVersions | undefined; open: boolean; onToggle: () => void }) {
   const facts = warningFacts(w.data);
-  const href = w.action_url ?? `/projects/${w.project_id}`;
+  // a Critical card opens the bug it was filed as (0065); its fix link (Play Console, Gmail) stays
+  const href = w.bug ? `/bugs/${w.bug.id}` : (w.action_url ?? `/projects/${w.project_id}`);
   const external = /^https?:/.test(href);
+  const fixUrl = w.bug && w.action_url && /^https?:/.test(w.action_url) ? w.action_url : null;
   return (
     <li id={`w-${w.id}`} className={cx("flex scroll-mt-20 flex-col rounded-md border p-3 shadow-card", TONE[w.level].card)}>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -92,6 +97,12 @@ function WarningCard({ w, app, open, onToggle }: { w: AppWarningItem; app: AppVe
         ) : null}
         {!w.active ? <Badge tone="green">Condition cleared</Badge> : null}
         {w.reopened_count > 0 ? <Badge tone="violet">Back again</Badge> : null}
+        {w.bug ? (
+          <Badge tone={w.bug.status === "closed" ? "green" : w.bug.status === "fixed" || w.bug.status === "ready_for_retest" ? "amber" : "red"}>
+            Bug: {w.bug.status.replace(/_/g, " ")}
+            {w.bug.assignee ? ` · ${w.bug.assignee}` : " · unassigned"}
+          </Badge>
+        ) : null}
       </div>
       <button type="button" onClick={onToggle} aria-expanded={open} className="mt-2 text-left">
         <span className={cx("font-medium leading-snug text-slate-800 hover:text-brand-fg", !open && "line-clamp-3")}>{w.title}</span>
@@ -176,13 +187,18 @@ function WarningCard({ w, app, open, onToggle }: { w: AppWarningItem; app: AppVe
         <button type="button" onClick={onToggle} className="text-xs font-medium text-slate-600 hover:underline">
           {open ? "Less ▴" : "Details ▾"}
         </button>
+        {fixUrl ? (
+          <a href={fixUrl} target="_blank" rel="noreferrer" className="ml-auto text-xs font-medium text-slate-600 hover:underline">
+            Where to fix ↗
+          </a>
+        ) : null}
         {external ? (
-          <a href={href} target="_blank" rel="noreferrer" className="ml-auto text-xs font-medium text-brand-fg hover:underline">
+          <a href={href} target="_blank" rel="noreferrer" className={cx(!fixUrl && "ml-auto", "text-xs font-medium text-brand-fg hover:underline")}>
             Open ↗
           </a>
         ) : (
-          <Link href={href} className="ml-auto text-xs font-medium text-brand-fg hover:underline">
-            Open ↗
+          <Link href={href} className={cx(!fixUrl && "ml-auto", "text-xs font-medium text-brand-fg hover:underline")}>
+            {w.bug ? "Open bug ↗" : "Open ↗"}
           </Link>
         )}
       </div>
