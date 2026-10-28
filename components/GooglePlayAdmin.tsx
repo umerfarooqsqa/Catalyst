@@ -120,7 +120,7 @@ const FIELDS: { key: string; label: string; pct?: boolean }[] = [
   { key: "new_crash_min_users", label: "New crash with at least (users)" },
   { key: "play_minutes", label: "Play check every (minutes)" },
   { key: "vitals_minutes", label: "Vitals check every (minutes)" },
-  { key: "stale_minutes", label: "'Checks have stopped' after (minutes)" },
+  { key: "stale_minutes", label: "'Checks have stopped' after the check's interval + (minutes)" },
   { key: "target_warn_days", label: "Target API warning (days before)" },
 ];
 
