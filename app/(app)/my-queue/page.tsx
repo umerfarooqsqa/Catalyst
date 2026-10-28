@@ -207,6 +207,38 @@ export default async function MyQueuePage() {
   const appWarnings: AppWarningItem[] = [...(warningRows ?? [])]
     .sort((a, b) => (a.projects?.name ?? "").localeCompare(b.projects?.name ?? ""))
     .map(({ projects: _p, ...w }) => ({ ...w, level: warningLevel(w) }));
+  // "Critical bugs on live" cards list the bugs, by the release the monitor counted (data.release_id,
+  // or the version in the fingerprint for cards found before 2026-10-28)
+  const liveCards = appWarnings.filter((w) => w.kind === "critical_bugs_live");
+  if (liveCards.length) {
+    const fact = (w: AppWarningItem, k: string) => (w.data as Record<string, unknown> | null)?.[k];
+    const missing = liveCards.filter((w) => !fact(w, "release_id"));
+    const { data: rels } = missing.length
+      ? await supabase
+          .from("releases")
+          .select("id, project_id, version")
+          .in("project_id", missing.map((w) => w.project_id))
+      : { data: [] };
+    const releaseOf = new Map<string, string>();
+    for (const w of liveCards) {
+      const version = String(fact(w, "version") ?? w.title.replace(/^.* live version /, ""));
+      const id = (fact(w, "release_id") as string | undefined) ?? rels?.find((r) => r.project_id === w.project_id && r.version === version)?.id;
+      if (id) releaseOf.set(w.id, id);
+    }
+    const { data: liveBugs } = releaseOf.size
+      ? await supabase
+          .from("bugs")
+          .select("id, title, status, release_id, assignee:profiles!bugs_assignee_id_fkey(full_name)")
+          .in("release_id", [...new Set(releaseOf.values())])
+          .eq("severity", "critical")
+          .in("status", ["open", "in_progress", "reopened"])
+          .order("created_at", { ascending: false })
+      : { data: [] };
+    for (const w of liveCards)
+      w.bugs = (liveBugs ?? [])
+        .filter((b) => b.release_id === releaseOf.get(w.id))
+        .map((b) => ({ id: b.id, title: b.title, status: b.status, assignee: b.assignee?.full_name ?? null }));
+  }
   const warnApps: Record<string, AppVersions> = {};
   if (warningRows?.length) {
     const ids = [...new Set(warningRows.map((w) => w.project_id))];

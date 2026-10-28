@@ -285,7 +285,7 @@ async function portalWarnings(c: Claim, liveVersion: string | null): Promise<War
         title: `${count} critical bug${count === 1 ? "" : "s"} still open on live version ${live.version}`,
         detail: "Users have this version now.",
         action_url: `/projects/${c.project_id}/bugs`,
-        data: { count },
+        data: { count, version: live.version, release_id: live.id },
       });
     }
   }

@@ -38,6 +38,8 @@ export type AppWarningItem = {
   last_seen_at: string;
   cleared_at: string | null;
   reopened_count: number;
+  /** "Critical bugs on live" cards: the bugs themselves (open, in progress or reopened). */
+  bugs?: { id: string; title: string; status: string; assignee: string | null }[];
 };
 
 // Where an app warning came from (migration 0056, lib/monitor).
@@ -54,6 +56,7 @@ const sourceLabel = (s: string) => WARNING_SOURCE[s] ?? (s.startsWith("monitor_s
 
 const TONE: Record<WarningLevel, { card: string; tab: string; count: string }> = {
   critical: { card: "border-red-300 bg-red-50", tab: "border-red-500 text-red-700", count: "bg-red-600 text-white" },
+  live_bugs: { card: "border-rose-300 bg-rose-50", tab: "border-rose-500 text-rose-700", count: "bg-rose-600 text-white" },
   not_critical: { card: "border-amber-300 bg-amber-50", tab: "border-amber-500 text-amber-800", count: "bg-amber-500 text-white" },
   negligible: { card: "border-grid-line bg-white", tab: "border-slate-500 text-slate-700", count: "bg-slate-400 text-white" },
 };
@@ -92,6 +95,23 @@ function WarningCard({ w, app, open, onToggle }: { w: AppWarningItem; app: AppVe
       </button>
       <p className="mt-1 truncate text-xs text-slate-500">{app?.name}</p>
       {w.detail ? <p className={cx("mt-1 whitespace-pre-line text-xs text-slate-600", !open && "line-clamp-2")}>{w.detail}</p> : null}
+      {w.bugs?.length ? (
+        <ul className="mt-2 space-y-1 text-xs">
+          {(open ? w.bugs : w.bugs.slice(0, 3)).map((b) => (
+            <li key={b.id} className="flex items-baseline gap-1.5">
+              <span className="text-rose-600">●</span>
+              <Link href={`/bugs/${b.id}`} className="min-w-0 flex-1 truncate text-slate-800 hover:text-brand-fg hover:underline">
+                {b.title}
+              </Link>
+              <span className="shrink-0 text-slate-500">
+                {b.status.replace(/_/g, " ")}
+                {b.assignee ? ` · ${b.assignee}` : " · unassigned"}
+              </span>
+            </li>
+          ))}
+          {!open && w.bugs.length > 3 ? <li className="text-slate-500">+{w.bugs.length - 3} more</li> : null}
+        </ul>
+      ) : null}
 
       {open ? (
         <div className="mt-3 space-y-3 rounded-md border border-grid-line bg-white/70 p-2.5 text-xs">
@@ -133,7 +153,10 @@ function WarningCard({ w, app, open, onToggle }: { w: AppWarningItem; app: AppVe
           <section>
             <h4 className="mb-1 font-semibold text-slate-700">History</h4>
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
-              <Row label="Level">{LEVELS.find((l) => l.key === w.level)?.label} ({w.severity === "critical" ? "red" : "amber"} on Google's scale)</Row>
+              <Row label="Level">
+                {LEVELS.find((l) => l.key === w.level)?.label}
+                {w.level === "live_bugs" ? "" : ` (${w.severity === "critical" ? "red" : "amber"} on Google's scale)`}
+              </Row>
               <Row label="First seen"><LocalTime value={w.first_seen_at} /></Row>
               <Row label="Last seen"><LocalTime value={w.last_seen_at} /></Row>
               {w.cleared_at ? <Row label="Cleared"><LocalTime value={w.cleared_at} /></Row> : null}
