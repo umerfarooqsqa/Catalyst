@@ -8,6 +8,8 @@
  *      B. target API compliance: Play rejects updates / hides the app on newer Android;
  *      C. crash or ANR rate over Google's limit, overall or on a phone model;
  *      D. a new crash or ANR in the live build, hitting enough users;
+ *  - rates (own tab since 2026-10-28, asked by the user; still emailed): C. crash or ANR rate
+ *    over Google's limit, overall or on a phone model;
  *  - live_bugs (own tab since 2026-10-28, asked by the user; still emailed): F. critical bugs
  *    still open on the live version. They come from catalyst's own bugs, not from Google Play,
  *    and the card lists them;
@@ -20,10 +22,11 @@
  */
 import { androidName } from "@/lib/monitor/rules";
 
-export type WarningLevel = "critical" | "live_bugs" | "not_critical" | "negligible";
+export type WarningLevel = "critical" | "rates" | "live_bugs" | "not_critical" | "negligible";
 
 export const LEVELS: { key: WarningLevel; label: string; hint: string }[] = [
-  { key: "critical", label: "Critical", hint: "Suspension or Play policy, target API, crash/ANR over Google's limit, new crashes in the live build. Emailed." },
+  { key: "critical", label: "Critical", hint: "Suspension or Play policy, target API, new crashes or ANRs in the live build. Emailed." },
+  { key: "rates", label: "Crash & ANR rates", hint: "Crash or ANR rate over Google's limit, overall or on a phone model (Android vitals, last 28 days). Emailed." },
   { key: "live_bugs", label: "Critical bugs on live", hint: "Critical bugs logged in catalyst that are still open on the version users have now. Emailed." },
   { key: "not_critical", label: "Not critical", hint: "Getting close, or worth a look. Not emailed." },
   { key: "negligible", label: "Negligible", hint: "Already cleared, or a note about the checker itself. Not emailed." },
@@ -40,6 +43,9 @@ export const EMAILED_KINDS = new Set([
 
 export const isEmailedKind = (kind: string, severity: string) => severity === "critical" && EMAILED_KINDS.has(kind);
 
+/** C: rates over Google's limit get their own tab (amber ones stay Not critical). */
+const RATE_KINDS = new Set(["crash_rate", "anr_rate", "crash_rate_device", "anr_rate_device"]);
+
 const CHECKER_KINDS = new Set(["release_name", "reporting_api_disabled"]);
 
 export function warningLevel(w: { severity: string; active: boolean; source: string; kind: string }): WarningLevel {
@@ -48,6 +54,7 @@ export function warningLevel(w: { severity: string; active: boolean; source: str
   if (w.source.startsWith("monitor") && !w.source.startsWith("monitor_stale")) return "negligible";
   if (CHECKER_KINDS.has(w.kind)) return "negligible";
   if (w.kind === "critical_bugs_live") return "live_bugs";
+  if (RATE_KINDS.has(w.kind) && isEmailedKind(w.kind, w.severity)) return "rates";
   return isEmailedKind(w.kind, w.severity) ? "critical" : "not_critical";
 }
 

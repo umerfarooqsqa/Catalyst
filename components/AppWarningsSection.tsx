@@ -56,6 +56,7 @@ const sourceLabel = (s: string) => WARNING_SOURCE[s] ?? (s.startsWith("monitor_s
 
 const TONE: Record<WarningLevel, { card: string; tab: string; count: string }> = {
   critical: { card: "border-red-300 bg-red-50", tab: "border-red-500 text-red-700", count: "bg-red-600 text-white" },
+  rates: { card: "border-orange-300 bg-orange-50", tab: "border-orange-500 text-orange-700", count: "bg-orange-600 text-white" },
   live_bugs: { card: "border-rose-300 bg-rose-50", tab: "border-rose-500 text-rose-700", count: "bg-rose-600 text-white" },
   not_critical: { card: "border-amber-300 bg-amber-50", tab: "border-amber-500 text-amber-800", count: "bg-amber-500 text-white" },
   negligible: { card: "border-grid-line bg-white", tab: "border-slate-500 text-slate-700", count: "bg-slate-400 text-white" },
