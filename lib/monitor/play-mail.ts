@@ -7,8 +7,8 @@ import { mailSeverity, matchMailProjects, type Warning } from "@/lib/monitor/rul
  * about, never cleared by a later check (only a person closes it). Fixed 2026-10-27 (0060):
  *  - one card per email, not per Gmail thread, so a follow-up ("final notice") notifies again;
  *  - an email listing several apps becomes a card on each of them;
- *  - an email naming no app rings App health (play_mail_unmatched_notify) and waits on the
- *    admin page to be assigned;
+ *  - an email naming no app waits on the admin page to be assigned, and rings App health
+ *    (play_mail_unmatched_notify) when it is serious (2026-10-28: only Critical is emailed);
  *  - at most MAX_PER_CALL emails per call, with a fixed number of database requests per email,
  *    so a burst can't exceed Cloudflare's per-run request limit (the Apps Script sends batches).
  */
@@ -87,7 +87,8 @@ export async function receivePlayMails(messages: PlayMail[]) {
     if (error) throw new Error(error.message);
   }
   for (const m of fresh) {
-    if (!matchedOf.get(String(m.id))?.length) {
+    // a mail naming no app has no card: ring App health only for a serious one (Critical, A)
+    if (!matchedOf.get(String(m.id))?.length && playMailWarning(m).severity === "critical") {
       await supabase.rpc("play_mail_unmatched_notify", { p_subject: m.subject ?? "" });
     }
   }
