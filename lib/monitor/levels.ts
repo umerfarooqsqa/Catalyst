@@ -8,6 +8,8 @@
  *      B. target API compliance: Play rejects updates / hides the app on newer Android;
  *      C. crash or ANR rate over Google's limit, overall or on a phone model;
  *      D. a new crash or ANR in the live build, hitting enough users;
+ *  - new_crashes (own tab since 2026-10-28, asked by the user; still emailed): D. a new crash or
+ *    ANR in the live build, hitting enough users;
  *  - rates (own tab since 2026-10-28, asked by the user; still emailed): C. crash or ANR rate
  *    over Google's limit, overall or on a phone model;
  *  - live_bugs (own tab since 2026-10-28, asked by the user; still emailed): F. critical bugs
@@ -22,10 +24,11 @@
  */
 import { androidName } from "@/lib/monitor/rules";
 
-export type WarningLevel = "critical" | "rates" | "live_bugs" | "not_critical" | "negligible";
+export type WarningLevel = "critical" | "new_crashes" | "rates" | "live_bugs" | "not_critical" | "negligible";
 
 export const LEVELS: { key: WarningLevel; label: string; hint: string }[] = [
-  { key: "critical", label: "Critical", hint: "Suspension or Play policy, target API, new crashes or ANRs in the live build. Emailed." },
+  { key: "critical", label: "Critical", hint: "App suspended or Play policy, target API compliance. Emailed." },
+  { key: "new_crashes", label: "New crashes in live build", hint: "A crash or ANR first seen in the build users have now, hitting enough of them (Android vitals). Emailed." },
   { key: "rates", label: "Crash & ANR rates", hint: "Crash or ANR rate over Google's limit, overall or on a phone model (Android vitals, last 28 days). Emailed." },
   { key: "live_bugs", label: "Critical bugs on live", hint: "Critical bugs logged in catalyst that are still open on the version users have now. Emailed." },
   { key: "not_critical", label: "Not critical", hint: "Getting close, or worth a look. Not emailed." },
@@ -55,6 +58,7 @@ export function warningLevel(w: { severity: string; active: boolean; source: str
   if (CHECKER_KINDS.has(w.kind)) return "negligible";
   if (w.kind === "critical_bugs_live") return "live_bugs";
   if (RATE_KINDS.has(w.kind) && isEmailedKind(w.kind, w.severity)) return "rates";
+  if (w.kind === "new_crash" && isEmailedKind(w.kind, w.severity)) return "new_crashes";
   return isEmailedKind(w.kind, w.severity) ? "critical" : "not_critical";
 }
 
