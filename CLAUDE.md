@@ -107,7 +107,7 @@ rewrite.
   - Bug Library: "Copy to project…" is shown only to QA/admin (`canCreateBugs`); adding library bugs to projects isn't a developer's job. `bugs_qa_insert` RLS already refused it.
 - **Comments** (`components/BugComments.tsx`):
   - Live updates (comments are added to the `supabase_realtime` publication).
-  - Authors edit or delete their own; admins delete any. `comments.edited_at` is set by the `trg_comments_on_edit` trigger, which also allows only the text to change, and the comment shows "edited".
+  - Authors edit or delete their own; admins delete any. `comments.edited_at` is set by the `trg_comments_on_edit` trigger, which also allows only the text to change, and the comment shows "edited". Since migration 0068 (2026-11-02) the author may also become NULL, which is what deleting the author's account does; before, that trigger made Admin → Users → delete fail for anyone who had ever commented. The page now asks before deleting and shows why a delete failed.
   - Author role badge, and Ctrl+Enter to post. The insert policy also requires that the commenter can see the bug.
 - **Not covered:** the requirement-documents storage bucket read policy is not platform-filtered, and task comments/drawer still use the old UI.
 

@@ -5,6 +5,7 @@ import { fmtDate } from "@/lib/format";
 import { DEV_RANKS, DEV_RANK_LABELS } from "@/lib/types/models";
 import { skillsOf } from "@/lib/bug-area";
 import { getRoleCategories } from "@/lib/data";
+import ConfirmSubmit from "@/components/ConfirmSubmit";
 import type { RoleCategory } from "@/lib/types/models";
 import { updateUser, createUser, deleteUser, setUserPassword, setNotificationEmail } from "../actions";
 
@@ -28,10 +29,12 @@ export default async function AdminUsersPage({
     created?: string;
     pw?: string;
     pwset?: string;
+    deleted?: string;
+    delerr?: string;
   }>;
 }) {
   const { userId } = await requireProfile();
-  const { created, pw, pwset } = await searchParams;
+  const { created, pw, pwset, deleted, delerr } = await searchParams;
   const supabase = await createClient();
   const [{ data: users }, { data: roles }, roleCats, { data: notifyRows }] = await Promise.all([
     supabase
@@ -87,6 +90,18 @@ export default async function AdminUsersPage({
               anywhere and can&apos;t be shown again.
             </p>
           )}
+        </Card>
+      ) : null}
+
+      {deleted ? (
+        <Card className="mb-6 border-brand-line bg-brand-soft p-4">
+          <p className="text-[13px] font-medium text-brand-fg">Deleted {deleted}</p>
+        </Card>
+      ) : null}
+
+      {delerr ? (
+        <Card className="mb-6 border-red-300 bg-red-50 p-4">
+          <p className="text-[13px] font-medium text-red-700">{delerr}</p>
         </Card>
       ) : null}
 
@@ -318,9 +333,13 @@ function DeleteForm({ u }: { u: ProfileRow }) {
   return (
     <form action={deleteUser}>
       <input type="hidden" name="id" value={u.id} />
-      <button className="text-xs text-slate-400 hover:text-red-600">
+      <input type="hidden" name="name" value={u.full_name ?? u.email ?? ""} />
+      <ConfirmSubmit
+        message={`Delete ${u.full_name ?? u.email ?? "this user"}? They lose access at once. Their bugs, tasks and comments stay, without them.`}
+        className="text-xs text-slate-400 hover:text-red-600"
+      >
         delete
-      </button>
+      </ConfirmSubmit>
     </form>
   );
 }

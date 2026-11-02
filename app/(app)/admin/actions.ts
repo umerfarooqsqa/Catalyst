@@ -247,9 +247,26 @@ export async function setUserPassword(formData: FormData) {
   );
 }
 
+// The outcome is shown on the Users page (?deleted= / ?delerr=), like createUser's password.
 export async function deleteUser(formData: FormData) {
-  const { admin, actorId } = await getAdminClient();
   const id = String(formData.get("id"));
+  const name = String(formData.get("name") ?? "") || "the user";
+  let problem: string | null = null;
+  try {
+    await removeUser(id);
+  } catch (e) {
+    problem = e instanceof Error ? e.message : String(e);
+  }
+  revalidatePath("/admin/users");
+  redirect(
+    problem
+      ? `/admin/users?delerr=${encodeURIComponent(`Couldn't delete ${name}: ${problem}`)}`
+      : `/admin/users?deleted=${encodeURIComponent(name)}`,
+  );
+}
+
+async function removeUser(id: string) {
+  const { admin, actorId } = await getAdminClient();
   if (id === actorId) throw new Error("You can't delete your own account.");
 
   // Block deleting the last admin-level user.
@@ -274,8 +291,14 @@ export async function deleteUser(formData: FormData) {
   }
 
   const { error } = await admin.auth.admin.deleteUser(id);
-  if (error) throw new Error(error.message);
-  revalidatePath("/admin/users");
+  if (error) {
+    // Supabase Auth hides the database's reason; the server log has it
+    throw new Error(
+      /database error/i.test(error.message)
+        ? `${error.message}. Something in the database still refuses to let go of this person.`
+        : error.message,
+    );
+  }
 }
 
 /* --------------------------- Role categories -------------------------- */
