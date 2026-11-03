@@ -10,6 +10,7 @@ import {
   removeProjectMember,
   updateProjectPlatform,
   updateAndroidPackage,
+  updateIosBundleId,
 } from "@/app/(app)/projects/actions";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +29,7 @@ export default async function ProjectSettingsPage({
     await Promise.all([
       supabase
         .from("projects")
-        .select("id, name, house_slug, house_group, platform, current_version, release_notes_ref, notify_emails, android_package")
+        .select("id, name, house_slug, house_group, platform, current_version, release_notes_ref, notify_emails, android_package, ios_bundle_id")
         .eq("id", projectId)
         .single(),
       supabase
@@ -227,6 +228,29 @@ export default async function ProjectSettingsPage({
             />
             <button className="w-full rounded-md bg-brand px-3 py-2 text-sm font-medium text-white transition active:scale-95 hover:bg-brand-fg sm:w-auto">
               Save package
+            </button>
+          </form>
+        </Card>
+      )}
+
+      {project.platform === "ios" && (
+        <Card className="mt-6 p-4">
+          <h2 className="mb-1 text-sm font-semibold text-slate-700">iOS bundle id</h2>
+          <p className="mb-3 text-xs text-slate-500">
+            Which app on the iPhone this project is. The Mac runner reads it from the iPhone and fills it in when the
+            app is added; change it here only if the app&apos;s bundle id changed.
+          </p>
+          <form action={updateIosBundleId} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input type="hidden" name="project_id" value={project.id} />
+            <input
+              key={project.ios_bundle_id ?? "unset"}
+              name="ios_bundle_id"
+              defaultValue={project.ios_bundle_id ?? ""}
+              placeholder="com.company.app"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm sm:w-80"
+            />
+            <button className="w-full rounded-md bg-brand px-3 py-2 text-sm font-medium text-white transition active:scale-95 hover:bg-brand-fg sm:w-auto">
+              Save bundle id
             </button>
           </form>
         </Card>

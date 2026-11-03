@@ -30,7 +30,7 @@ export async function GET(req: Request) {
   const supabase = serviceRoleClient();
   let query = supabase
     .from("projects")
-    .select("id, name, platform, house_slug, house_group, current_version")
+    .select("id, name, platform, house_slug, house_group, current_version, ios_bundle_id")
     .not("platform", "is", null)
     .order("name");
   if (platform) query = query.eq("platform", platform);
@@ -44,6 +44,8 @@ export async function GET(req: Request) {
     // the Android project carries house_slug; its iOS sibling only house_group
     house: p.house_slug ?? p.house_group,
     version: p.current_version,
+    // iOS (migration 0069): the app's bundle id, read from the iPhone by the Mac runner
+    ...(p.platform === "ios" ? { bundle_id: p.ios_bundle_id } : {}),
   }));
   const unmapped = params.get("unmapped") === "1";
   return NextResponse.json({ projects: projects.filter((p) => (unmapped ? !p.house : p.house)) });
@@ -51,7 +53,8 @@ export async function GET(req: Request) {
 
 /**
  * POST — "Add app" from the aktrade Development Portal: give a new house its
- * catalyst project. Body: { house, name, platform, version?, project_id? }.
+ * catalyst project. Body: { house, name, platform, version?, project_id?, package? (Android),
+ * bundle_id? (iOS, migration 0069) }.
  *
  * - The house is already mapped: returned as is ("existing").
  * - `project_id` given (or a project of that platform with the same name,
@@ -84,16 +87,25 @@ export async function POST(req: Request) {
   const pkg = typeof body?.package === "string" && /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/.test(body.package.trim())
     ? body.package.trim()
     : null;
-  const pkgValue = platform === "android" && pkg ? { android_package: pkg } : {};
+  // iOS bundle id (migration 0069), read from the iPhone by the aktrade Mac runner
+  const bundleId = typeof body?.bundle_id === "string" && /^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/.test(body.bundle_id.trim())
+    ? body.bundle_id.trim()
+    : null;
+  const pkgValue = platform === "android" && pkg
+    ? { android_package: pkg }
+    : platform === "ios" && bundleId
+      ? { ios_bundle_id: bundleId }
+      : {};
 
   const supabase = serviceRoleClient();
-  const cols = "id, name, platform, house_slug, house_group, current_version";
-  const shape = (p: { id: string; name: string; platform: string | null; house_slug: string | null; house_group: string | null; current_version: string | null }) => ({
+  const cols = "id, name, platform, house_slug, house_group, current_version, ios_bundle_id";
+  const shape = (p: { id: string; name: string; platform: string | null; house_slug: string | null; house_group: string | null; current_version: string | null; ios_bundle_id: string | null }) => ({
     id: p.id,
     name: p.name,
     platform: p.platform,
     house: p.house_slug ?? p.house_group,
     version: p.current_version,
+    ...(p.platform === "ios" ? { bundle_id: p.ios_bundle_id } : {}),
   });
 
   const { data: mapped, error: mapErr } = await supabase
@@ -103,7 +115,23 @@ export async function POST(req: Request) {
     .eq("platform", platform)
     .maybeSingle();
   if (mapErr) return NextResponse.json({ error: mapErr.message }, { status: 500 });
-  if (mapped) return NextResponse.json({ status: "existing", project: shape(mapped) });
+  if (mapped) {
+    // An existing iOS project with no bundle id yet gets the one the Mac just read from the iPhone.
+    if (platform === "ios" && bundleId && !mapped.ios_bundle_id) {
+      const { data: upd, error: updErr } = await supabase
+        .from("projects")
+        .update({ ios_bundle_id: bundleId })
+        .eq("id", mapped.id)
+        .select(cols)
+        .single();
+      if (updErr) {
+        const msg = updErr.code === "23505" ? "Another project already has this bundle id" : updErr.message;
+        return NextResponse.json({ error: msg }, { status: updErr.code === "23505" ? 409 : 500 });
+      }
+      return NextResponse.json({ status: "existing", project: shape(upd) });
+    }
+    return NextResponse.json({ status: "existing", project: shape(mapped) });
+  }
 
   let target = null;
   if (projectId) {

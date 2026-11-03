@@ -727,6 +727,7 @@ export type Database = {
         Row: {
           added_from_play: boolean
           android_package: string | null
+          ios_bundle_id: string | null
           /** Generated from name (migration 0046); unique per platform. Never written. */
           name_key: string
           assigned_developer_id: string | null
@@ -746,6 +747,7 @@ export type Database = {
         Insert: {
           added_from_play?: boolean
           android_package?: string | null
+          ios_bundle_id?: string | null
           assigned_developer_id?: string | null
           notify_emails?: string[]
           created_at?: string
@@ -763,6 +765,7 @@ export type Database = {
         Update: {
           added_from_play?: boolean
           android_package?: string | null
+          ios_bundle_id?: string | null
           assigned_developer_id?: string | null
           notify_emails?: string[]
           created_at?: string

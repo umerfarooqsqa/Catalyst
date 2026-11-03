@@ -140,6 +140,23 @@ export async function updateAndroidPackage(formData: FormData) {
   revalidatePath(`/projects/${project_id}/settings`);
 }
 
+/** The iOS app's bundle id (migration 0069): which app on the iPhone the Mac runner tests. */
+export async function updateIosBundleId(formData: FormData) {
+  const { level } = await requireProfile();
+  if (!canAdminister(level)) throw new Error("Not authorized");
+  const project_id = String(formData.get("project_id"));
+  const bid = String(formData.get("ios_bundle_id") || "").trim() || null;
+  if (bid && !/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/.test(bid)) {
+    throw new Error("A bundle id looks like com.company.app.");
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.from("projects").update({ ios_bundle_id: bid }).eq("id", project_id);
+  if (error) {
+    throw new Error(error.code === "23505" ? "Another project already has this bundle id." : error.message);
+  }
+  revalidatePath(`/projects/${project_id}/settings`);
+}
+
 /**
  * "App versions" panel on the Bugs page (QA/admin): adds a version of this app that
  * bugs can be filed under, and optionally makes it the project's current version (the

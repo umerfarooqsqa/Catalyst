@@ -185,6 +185,12 @@ job is never handed out twice and a runner only receives its own platform's jobs
   - `POST {house, name, platform, version?, project_id?}` gives a house added by name in aktrade's Development Portal its project. If the house is already mapped, it returns `existing`. Otherwise it links `project_id` (or a same-named project with no house) and returns `linked`, with a 409 if that project already has another house. Failing both, it inserts a new project and returns `created`.
   - The house goes in `house_slug` on Android and `house_group` on iOS; the version is filled in only if it was empty.
   - This replaces hand-written mapping migrations (0021, 0028-0030) for new apps.
+  - **iOS bundle id (2026-11-03, migration 0069):**
+    - **Sending it:** `POST` also takes `bundle_id` (iOS) and stores it in `projects.ios_bundle_id`, which is unique and format-checked. An already-mapped iOS project with no bundle id gets it filled.
+    - **Where it comes from:** the aktrade Mac runner reads it from the iPhone (`scripts/ios_apps.py --save`, or Add app).
+    - **Reading it back:** `GET` returns `bundle_id` on iOS projects, so the folder sync writes it into `project.json`.
+    - **Editing it:** project Settings has an "iOS bundle id" card (`updateIosBundleId`).
+    - **Nothing reads it in the cloud yet:** App Store Connect checks are a separate, later plan.
 - **Runner routes**: `POST runners` (register + heartbeat; rejects a wrong platform/OS pair with 422), `POST jobs/claim`
   (`{runner, platform}`; 403 if the platform differs from the runner's registration), `POST jobs/[id]` (only the claiming runner can
   finish a claimed job, once). Auth is still the single shared `AUTOMATION_INGEST_SECRET` (decided; per-platform secrets are a
