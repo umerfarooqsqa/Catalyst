@@ -1,5 +1,6 @@
-// Tests migrations 0046 (WhatsApp import) and 0047 (Grok inbox) against the live database through the Supabase
-// Management API.
+// Tests migrations 0046 (WhatsApp import), 0047 (Grok inbox), 0048 (automatic import), 0049 (short names),
+// 0050 (a house per WhatsApp group) and 0051 (scan requests for Grok) against the live database through the
+// Supabase Management API.
 //
 //   SUPABASE_ACCESS_TOKEN=sbp_... node scripts/whatsapp-import-test.mjs
 //
@@ -81,6 +82,76 @@ try {
   if (!m) check("auto test file ran", false, e.message);
   else {
     console.log(e.message.split("\n").filter((l) => /TESTS|FAIL/.test(l)).map((l) => `  ${l.replace(/^.*?AUTO/, "AUTO")}`).join("\n"));
+    pass += Number(m[1]);
+    fail += Number(m[2]);
+  }
+}
+
+console.log("\n# Short names and multi-app rows (0049, one rolled-back transaction)");
+try {
+  await sql(readFileSync(new URL("../supabase/tests/0049_whatsapp_short_names.sql", import.meta.url), "utf8"));
+  check("short name test file ended with its results", false, "(it returned without raising them)");
+} catch (e) {
+  const m = /SHORT NAME TESTS: (\d+) passed, (\d+) failed/.exec(e.message);
+  if (!m) check("short name test file ran", false, e.message);
+  else {
+    console.log(e.message.split("\n").filter((l) => /TESTS|FAIL/.test(l)).map((l) => `  ${l.replace(/^.*?SHORT NAME/, "SHORT NAME")}`).join("\n"));
+    pass += Number(m[1]);
+    fail += Number(m[2]);
+  }
+}
+
+console.log("\n# A house per WhatsApp group (0050, one rolled-back transaction)");
+try {
+  await sql(readFileSync(new URL("../supabase/tests/0050_whatsapp_group_houses.sql", import.meta.url), "utf8"));
+  check("group test file ended with its results", false, "(it returned without raising them)");
+} catch (e) {
+  const m = /GROUP TESTS: (\d+) passed, (\d+) failed/.exec(e.message);
+  if (!m) check("group test file ran", false, e.message);
+  else {
+    console.log(e.message.split("\n").filter((l) => /TESTS|FAIL/.test(l)).map((l) => `  ${l.replace(/^.*?GROUP/, "GROUP")}`).join("\n"));
+    pass += Number(m[1]);
+    fail += Number(m[2]);
+  }
+}
+
+console.log("\n# Scan requests for Grok (0051, one rolled-back transaction)");
+try {
+  await sql(readFileSync(new URL("../supabase/tests/0051_whatsapp_scan_requests.sql", import.meta.url), "utf8"));
+  check("scan test file ended with its results", false, "(it returned without raising them)");
+} catch (e) {
+  const m = /SCAN TESTS: (\d+) passed, (\d+) failed/.exec(e.message);
+  if (!m) check("scan test file ran", false, e.message);
+  else {
+    console.log(e.message.split("\n").filter((l) => /TESTS|FAIL/.test(l)).map((l) => `  ${l.replace(/^.*?SCAN/, "SCAN")}`).join("\n"));
+    pass += Number(m[1]);
+    fail += Number(m[2]);
+  }
+}
+
+console.log("\n# Intake senders (0052, one rolled-back transaction)");
+try {
+  await sql(readFileSync(new URL("../supabase/tests/0052_whatsapp_intake_senders.sql", import.meta.url), "utf8"));
+  check("sender test file ended with its results", false, "(it returned without raising them)");
+} catch (e) {
+  const m = /SENDER TESTS: (\d+) passed, (\d+) failed/.exec(e.message);
+  if (!m) check("sender test file ran", false, e.message);
+  else {
+    console.log(e.message.split("\n").filter((l) => /TESTS|FAIL/.test(l)).map((l) => `  ${l.replace(/^.*?SENDER/, "SENDER")}`).join("\n"));
+    pass += Number(m[1]);
+    fail += Number(m[2]);
+  }
+}
+
+console.log("\n# Follow-ups on imported items (0054, one rolled-back transaction)");
+try {
+  await sql(readFileSync(new URL("../supabase/tests/0054_whatsapp_sync_imported.sql", import.meta.url), "utf8"));
+  check("sync test file ended with its results", false, "(it returned without raising them)");
+} catch (e) {
+  const m = /SYNC TESTS: (\d+) passed, (\d+) failed/.exec(e.message);
+  if (!m) check("sync test file ran", false, e.message);
+  else {
+    console.log(e.message.split("\n").filter((l) => /TESTS|FAIL/.test(l)).map((l) => `  ${l.replace(/^.*?SYNC/, "SYNC")}`).join("\n"));
     pass += Number(m[1]);
     fail += Number(m[2]);
   }

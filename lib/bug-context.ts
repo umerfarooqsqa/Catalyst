@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { PHONE_HELPER_URL } from "@/lib/phone-screenshot";
+import { PHONE_HELPER_URL, unreachableReason } from "@/lib/phone-screenshot";
 
 /**
  * "Watch and learn where bugs are": right after a bug is logged (or from the
@@ -31,10 +31,7 @@ export async function captureBugContext(house: string, bugId: string, title: str
     });
     return (await res.json()) as BugContext;
   } catch {
-    return {
-      ok: false,
-      error: "Can't reach the aktrade Control Center on this PC (python web_dashboard.py), so the phone's screen wasn't attached.",
-    };
+    return { ok: false, error: `The phone's screen wasn't attached. ${await unreachableReason()}` };
   }
 }
 

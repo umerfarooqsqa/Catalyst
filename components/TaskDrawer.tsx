@@ -302,14 +302,17 @@ export default function TaskDrawer({
               Comments
             </h3>
             <ul className="space-y-3">
-              {comments.map((c) => (
+              {comments.map((c) => {
+                // WhatsApp follow-ups (migration 0054) are posted without an author
+                const name = c.author?.full_name ?? (!c.author_id && c.content.startsWith("WhatsApp update (") ? "WhatsApp" : "Unknown");
+                return (
                 <li key={c.id} className="flex gap-2">
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600">
-                    {initials(c.author?.full_name ?? "?")}
+                    {initials(name === "Unknown" ? "?" : name)}
                   </div>
                   <div>
                     <p className="text-xs text-slate-500">
-                      {c.author?.full_name ?? "Unknown"} ·{" "}
+                      {name} ·{" "}
                       <span suppressHydrationWarning>{fmtDateTime(c.created_at)}</span>
                     </p>
                     <p className="whitespace-pre-wrap text-sm text-slate-800">
@@ -317,7 +320,8 @@ export default function TaskDrawer({
                     </p>
                   </div>
                 </li>
-              ))}
+                );
+              })}
               {comments.length === 0 && (
                 <li className="text-sm text-slate-400">No comments yet</li>
               )}

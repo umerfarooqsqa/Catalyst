@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import { createClient } from "@/lib/supabase/client";
 import { Badge, Button, cx } from "@/components/ui";
+import GrokScanButton from "@/components/GrokScanButton";
 import { SEVERITY_LABELS } from "@/lib/severity";
 import type { Severity } from "@/lib/types/models";
 
@@ -24,7 +25,7 @@ type Planned = {
   title: string;
   project_id: string | null;
   project_name: string | null;
-  how: "house" | "name" | "chosen" | "new" | "ambiguous" | "none" | null;
+  how: "house" | "name" | "group" | "chosen" | "new" | "ambiguous" | "none" | null;
   severity: Severity | null;
   category_id: string | null;
   area: string | null;
@@ -170,6 +171,9 @@ export default function WhatsAppImport({
     }
   }
 
+  // A finished Grok scan (0051) may have brought new rows: reload the inbox.
+  const refreshPage = useCallback(() => router.refresh(), [router]);
+
   const shown = done ?? plan;
   const counts = useMemo(() => {
     const r = shown?.rows ?? [];
@@ -206,6 +210,9 @@ export default function WhatsAppImport({
               isn&apos;t in catalyst yet (or is unclear) appear here.
             </span>
           )}
+          <div className="basis-full">
+            <GrokScanButton onDone={refreshPage} />
+          </div>
         </div>
       )}
       <div className="flex flex-wrap items-center gap-3 rounded-md border border-grid-line bg-white p-3 text-[13px]">
@@ -326,7 +333,7 @@ export default function WhatsAppImport({
                               {p.how === "new"
                                 ? `➕ new: ${p.project_name}`
                                 : p.project_name
-                                  ? `${p.project_name} (${p.how === "house" ? "by house" : p.how === "name" ? "by name" : "chosen"})`
+                                  ? `${p.project_name} (${p.how === "house" ? "by house" : p.how === "name" ? "by name" : p.how === "group" ? "group's house" : "chosen"})`
                                   : `Choose… (${p.reason})`}
                             </option>
                             {projects.map((o) => (

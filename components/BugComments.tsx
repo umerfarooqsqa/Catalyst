@@ -133,14 +133,16 @@ export default function BugComments({
       <ul className="space-y-3">
         {comments.map((c) => {
           const mine = !!c.author_id && c.author_id === userId;
+          // WhatsApp follow-ups (migration 0054) are posted without an author
+          const name = c.author?.full_name ?? (!c.author_id && c.content.startsWith("WhatsApp update (") ? "WhatsApp" : "Former user");
           return (
             <li key={c.id} className="group flex gap-2">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600">
-                {initials(c.author?.full_name ?? "?")}
+                {initials(name === "Former user" ? "?" : name)}
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-xs text-slate-500">
-                  <span className="font-medium text-slate-700">{c.author?.full_name ?? "Former user"}</span>
+                  <span className="font-medium text-slate-700">{name}</span>
                   {c.author?.roles?.label && (
                     <span className="ml-1 rounded bg-slate-100 px-1 text-[10px] text-slate-500">{c.author.roles.label}</span>
                   )}

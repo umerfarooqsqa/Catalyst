@@ -67,7 +67,8 @@ select public.whatsapp_import((select jsonb_agg(row) from public.whatsapp_inbox 
 select pg_temp.check('imported: no longer waiting', not pg_temp.waiting('IN-1')
   and exists (select 1 from public.whatsapp_items where item_id = 'IN-1'));
 select pg_temp.check('sending an imported item again reports it as already imported',
-  (public.whatsapp_inbox_upsert('[{"item_id":"IN-1","type":"bug","house":"intesthouse","title":"again"}]')->>'already_imported')::int = 1
+  -- same status as before: since 0054 a changed status/notes on an imported item is a follow-up (updated)
+  (public.whatsapp_inbox_upsert('[{"item_id":"IN-1","type":"bug","house":"intesthouse","title":"again","status":"still open"}]')->>'already_imported')::int = 1
   and not pg_temp.waiting('IN-1'));
 select pg_temp.check('QA dismisses a row', public.whatsapp_inbox_dismiss(array['IN-2']) = 1 and not pg_temp.waiting('IN-2'));
 select public.whatsapp_inbox_upsert('[{"item_id":"IN-2","type":"task","house":"intesthouse","title":"Hide a section (again)"}]');

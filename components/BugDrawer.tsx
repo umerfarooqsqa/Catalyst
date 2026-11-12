@@ -17,7 +17,7 @@ import { capturePhone, listPhones, type Phone } from "@/lib/phone-screenshot";
 import { attachBugContext, captureBugContext } from "@/lib/bug-context";
 import BugComments from "@/components/BugComments";
 import AttachmentGallery from "@/components/AttachmentGallery";
-import { usePhoneHelper } from "@/lib/phone-helper-available";
+import { useDesktop } from "@/lib/phone-helper-available";
 import AreaChip from "@/components/AreaChip";
 import LocalTime from "@/components/LocalTime";
 import AssigneeOptions from "@/components/AssigneeOptions";
@@ -65,8 +65,9 @@ export default function BugDrawer({
   const editable = canEditBug(role, userId, bug);
   const canAssign = isManager(role);
   const devTargets = developerStatusTargets(role, bug.status);
-  // The phone-capture buttons need the aktrade Control Center on this PC: hidden on phones / in the app.
-  const phoneHelper = usePhoneHelper();
+  // The phone-capture buttons need the aktrade Control Center on this PC: shown on every computer
+  // (a click says what's wrong if it isn't reachable), hidden on phones / in the Android app.
+  const phoneHelper = useDesktop();
   const [description, setDescription] = useState(bug.description ?? "");
   const [steps, setSteps] = useState(bug.steps_to_reproduce ?? "");
   const [savingText, setSavingText] = useState(false);
@@ -300,6 +301,34 @@ export default function BugDrawer({
     await uploadFile(file);
     e.target.value = "";
   }
+
+  // A screenshot from the clipboard (Win+Shift+S, Print Screen…) or dragged in: attached as is.
+  // Works without a phone or the Control Center.
+  async function attachImages(files: File[]) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    setShotBusy(true);
+    try {
+      for (const [i, f] of files.entries()) {
+        const ext = (f.type.split("/")[1] || "png").replace("jpeg", "jpg");
+        const name = f.name && f.name !== "image.png" ? f.name : `screenshot-${bug.id.slice(0, 8)}-${stamp}${i ? `-${i}` : ""}.${ext}`;
+        await uploadFile(new File([f], name, { type: f.type }));
+      }
+    } finally {
+      setShotBusy(false);
+    }
+  }
+  useEffect(() => {
+    if (!isStaff(role)) return;
+    function onPaste(e: ClipboardEvent) {
+      const imgs = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+      if (!imgs.length) return; // plain text pastes into fields as usual
+      e.preventDefault();
+      attachImages(imgs);
+    }
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bug.id, role]);
 
   // "📍 Where it happens": capture the app screen + path from the test phone, attach it and let
   // automation learn it (aktrade utils/bug_context.py).
@@ -771,11 +800,27 @@ export default function BugDrawer({
             )}
           </section>
 
-          <section>
+          <section
+            onDragOver={(e) => {
+              if (isStaff(role) && [...e.dataTransfer.items].some((i) => i.kind === "file")) e.preventDefault();
+            }}
+            onDrop={(e) => {
+              if (!isStaff(role)) return;
+              const imgs = [...e.dataTransfer.files].filter((f) => f.type.startsWith("image/"));
+              if (!imgs.length) return;
+              e.preventDefault();
+              attachImages(imgs);
+            }}
+          >
             <h3 className="mb-2 text-sm font-semibold text-slate-700">
               Attachments
             </h3>
             <AttachmentGallery attachments={attachments} />
+            {isStaff(role) && (
+              <p className="mt-2 text-xs text-slate-500">
+                Paste a screenshot here (Ctrl+V, e.g. after Win+Shift+S) or drag an image in to attach it.
+              </p>
+            )}
             {isStaff(role) && (
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <input type="file" onChange={upload} className="text-xs" />

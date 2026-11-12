@@ -12,6 +12,7 @@ const OPTIONAL = [
   "SUPABASE_SERVICE_ROLE_KEY", // user & role administration
   "AUTOMATION_INGEST_SECRET", // shared secret for the aktrade automation API
   "EMAIL_FROM", // sender of the completion email (REQ-13) and the bug emails (0044)
+  "GROK_WEBHOOK_URL", // "Ask Grok to scan all groups" wakes Grok at once (0051); else it waits for Grok's next check
 ] as const;
 
 export function validateEnv() {

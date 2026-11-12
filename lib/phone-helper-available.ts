@@ -4,13 +4,15 @@ import { useEffect, useState } from "react";
 import { PHONE_HELPER_URL } from "@/lib/phone-screenshot";
 
 /**
- * Is the aktrade Control Center (the "phone helper" at PHONE_HELPER_URL,
- * localhost:217) running on this device? It exists only on the tester's PC,
- * never on a phone or in the Android app. So the buttons that need it ("📱 Take
- * phone screenshot", "📍 Capture where it happens" and the new-bug "📍 Attach
- * where this happens" checkbox) are shown only when it answers.
+ * The phone tools ("📱 Take phone screenshot", "📍 Capture where it happens") talk to the aktrade
+ * Control Center on the tester's PC (localhost:217).
  *
- * It is asked once per page load (1.5 s timeout) and the answer is shared.
+ * Changed 2026-10-07: the buttons used to be shown only when a 1.5 s probe of localhost answered
+ * at page load. That hid them whenever the Control Center was starting, adb was slow, or Chrome
+ * was still asking its "access devices on your local network" question, so they kept "vanishing".
+ * Now the bug drawer shows them on every computer (useDesktop) and a click explains what's wrong.
+ * The probe (5 s, a failure is not cached) only decides the new-bug "📍 Attach where this happens"
+ * checkbox, which runs by itself after saving.
  */
 let cached: Promise<boolean> | null = null;
 
@@ -18,7 +20,7 @@ export function isPhoneHelperAvailable(): Promise<boolean> {
   if (!cached) {
     cached = (async () => {
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 1500);
+      const timer = setTimeout(() => ctrl.abort(), 5000);
       try {
         const res = await fetch(`${PHONE_HELPER_URL}/adb/devices`, { cache: "no-store", signal: ctrl.signal });
         return res.ok;
@@ -28,6 +30,10 @@ export function isPhoneHelperAvailable(): Promise<boolean> {
         clearTimeout(timer);
       }
     })();
+    // A "no" isn't remembered: the next dialog asks again (the Control Center may have started since).
+    cached.then((ok) => {
+      if (!ok) cached = null;
+    });
   }
   return cached;
 }
@@ -41,6 +47,18 @@ export function usePhoneHelper(): boolean | null {
     return () => {
       live = false;
     };
+  }, []);
+  return ok;
+}
+
+/**
+ * A computer (mouse/trackpad, not Android): where the phone tools can work at all. False in the
+ * catalyst Android app and on phones, where there is no Control Center.
+ */
+export function useDesktop(): boolean {
+  const [ok, setOk] = useState(false);
+  useEffect(() => {
+    setOk(!/Android|iPhone|iPad/i.test(navigator.userAgent) && window.matchMedia("(pointer: fine)").matches);
   }, []);
   return ok;
 }

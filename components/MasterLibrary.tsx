@@ -9,6 +9,7 @@ import { fmtDate, titleCase } from "@/lib/format";
 import { exportRows } from "@/lib/export";
 import { canCreateBugs, canManageMasterLibrary } from "@/lib/permissions";
 import ImportBugsDialog from "@/components/ImportBugsDialog";
+import WhatsAppGroupsDialog from "@/components/WhatsAppGroupsDialog";
 import AreaChip from "@/components/AreaChip";
 import { shortLabel, suggestArea } from "@/lib/bug-area";
 import { useRoleCategories } from "@/components/RoleCategories";
@@ -23,13 +24,16 @@ import type {
 } from "@/lib/types/models";
 
 type Tab = "android" | "ios" | "unassigned" | "tradecast";
-const TAB_LABEL: Record<Tab, string> = { android: "Android", ios: "iOS", unassigned: "Unassigned", tradecast: "Tradecast" };
+const TAB_LABEL: Record<Tab, string> = { android: "Android", ios: "iOS", unassigned: "Generic Bugs", tradecast: "Tradecast" };
 type EntryPlatform = "android" | "ios" | "tradecast";
+/** Platform picked for a new entry; "generic" = Generic Bugs (platform NULL). */
+type NewPlatform = EntryPlatform | "generic";
+const dbPlatform = (p: NewPlatform): EntryPlatform | null => (p === "generic" ? null : p);
 const other = (p: "android" | "ios") => (p === "android" ? "ios" : "android");
 
 /** The Android list connects only to Android projects and the iOS list only to
- * iOS projects. Unassigned entries have no platform yet, so they can go to any
- * project until they are classified. Projects with no platform set never match
+ * iOS projects. Generic Bugs (platform NULL) apply to Android and iOS alike, so
+ * they can go to any project. Projects with no platform set never match
  * an Android/iOS entry. */
 function projectMatchesEntry(
   p: { platform: string | null },
@@ -45,10 +49,11 @@ export default function MasterLibrary({
   projects,
   role,
   userId,
+  whatsappWaiting,
 }: {
   /**
    * "tradecast": the Tradecast Bug Library (0064), one list of Tradecast entries, kept apart from
-   * the Android/iOS lists; its page passes only Tradecast projects. "main": Android / iOS / Unassigned.
+   * the Android/iOS lists; its page passes only Tradecast projects. "main": Android / iOS / Generic Bugs.
    */
   area?: "main" | "tradecast";
   initial: BasePageEntry[];
@@ -56,6 +61,8 @@ export default function MasterLibrary({
   projects: Pick<Project, "id" | "name" | "platform">[];
   role: RoleLevel;
   userId: string;
+  /** Grok's WhatsApp messages waiting for a house; null = not QA/admin or no inbox yet. */
+  whatsappWaiting: number | null;
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -70,7 +77,7 @@ export default function MasterLibrary({
   const tabs: Tab[] = tradecastArea ? ["tradecast"] : ["android", "ios", "unassigned"];
   const [tab, setTab] = useState<Tab>(tradecastArea ? "tradecast" : "android");
   const [counts, setCounts] = useState<Record<Tab, number>>({ android: 0, ios: 0, unassigned: 0, tradecast: 0 });
-  const [np, setNp] = useState<EntryPlatform>(tradecastArea ? "tradecast" : "android");
+  const [np, setNp] = useState<NewPlatform>(tradecastArea ? "tradecast" : "android");
   const [q, setQ] = useState("");
   const [fSeverity, setFSeverity] = useState("");
   const [fCategory, setFCategory] = useState("");
@@ -79,6 +86,7 @@ export default function MasterLibrary({
   const [msg, setMsg] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showWhatsApp, setShowWhatsApp] = useState(false);
   const [refetchKey, setRefetchKey] = useState(0);
 
   const [nt, setNt] = useState("");
@@ -153,7 +161,7 @@ export default function MasterLibrary({
 
   // New entries default to the tab you're looking at.
   useEffect(() => {
-    if (tab !== "unassigned") setNp(tab);
+    setNp(tab === "unassigned" ? "generic" : tab);
   }, [tab]);
 
   // Live duplicate check for the "New entry" form — as the user types a
@@ -174,7 +182,7 @@ export default function MasterLibrary({
         .from("base_page")
         .select("*")
         .eq("source_type", "master_bug")
-        .eq("platform", np)
+        .filter("platform", np === "generic" ? "is" : "eq", np === "generic" ? null : np)
         .ilike("title", `%${query}%`)
         .limit(5);
 
@@ -194,7 +202,7 @@ export default function MasterLibrary({
           .from("base_page")
           .select("*")
           .eq("source_type", "master_bug")
-          .eq("platform", np)
+          .filter("platform", np === "generic" ? "is" : "eq", np === "generic" ? null : np)
           .or(words.map((w) => `title.ilike.%${w}%`).join(","))
           .limit(8);
         byWord = data ?? [];
@@ -263,7 +271,7 @@ export default function MasterLibrary({
     }
     const { error } = await supabase.from("base_page").insert({
       source_type: "master_bug",
-      platform: np,
+      platform: dbPlatform(np),
       title: nt.trim(),
       description: nd.trim() || null,
       steps_to_reproduce: ns.trim() || null,
@@ -290,16 +298,20 @@ export default function MasterLibrary({
     router.refresh();
   }
 
-  async function setPlatform(id: string, platform: "android" | "ios") {
+  // platform null = Generic Bugs (applies to Android and iOS alike).
+  async function setPlatform(id: string, platform: "android" | "ios" | null, title?: string) {
+    if (platform === null && !confirm(`Move "${title ?? "this entry"}" to Generic Bugs? It will apply to Android and iOS alike and leave its platform list.`)) return;
     setErr(null);
+    setMsg(null);
     const { error } = await supabase.from("base_page").update({ platform }).eq("id", id);
     if (error) return setErr(error.message);
+    if (platform === null) setMsg(`Moved "${title ?? "entry"}" to Generic Bugs.`);
     setRefetchKey((k) => k + 1);
     router.refresh();
   }
 
   async function assignAll(platform: "android" | "ios") {
-    if (!confirm(`Assign all ${counts.unassigned} unassigned entries to ${TAB_LABEL[platform]}? You can still copy or move individual entries afterwards.`)) return;
+    if (!confirm(`Assign all ${counts.unassigned} Generic Bugs entries to ${TAB_LABEL[platform]}? You can still copy or move individual entries afterwards.`)) return;
     setErr(null);
     const { error } = await supabase
       .from("base_page")
@@ -358,7 +370,7 @@ export default function MasterLibrary({
   function doExport() {
     exportRows(
       rows.map((m) => ({
-        platform: m.platform ? TAB_LABEL[m.platform as Tab] : "Unassigned",
+        platform: m.platform ? TAB_LABEL[m.platform as Tab] : TAB_LABEL.unassigned,
         title: m.title,
         description: m.description,
         steps_to_reproduce: m.steps_to_reproduce,
@@ -398,6 +410,12 @@ export default function MasterLibrary({
             <Button variant="secondary" onClick={doExport}>
               Export .xlsx
             </Button>
+            {canManage && !tradecastArea && whatsappWaiting !== null && (
+              <Button variant="secondary" onClick={() => setShowWhatsApp(true)}>
+                💬 WhatsApp from Grok
+                {whatsappWaiting > 0 && <Badge tone="amber">{whatsappWaiting}</Badge>}
+              </Button>
+            )}
             {canManage && (
               <>
                 <Button
@@ -412,6 +430,10 @@ export default function MasterLibrary({
           </>
         }
       />
+
+      {showWhatsApp && canManage && (
+        <WhatsAppGroupsDialog onClose={() => setShowWhatsApp(false)} onDone={() => router.refresh()} />
+      )}
 
       {showImport && canManage && (
         <ImportBugsDialog
@@ -493,11 +515,12 @@ export default function MasterLibrary({
               ) : (
                 <select
                   value={np}
-                  onChange={(e) => setNp(e.target.value as EntryPlatform)}
+                  onChange={(e) => setNp(e.target.value as NewPlatform)}
                   className="rounded-md border border-slate-300 px-2 py-2 text-sm"
                 >
                   <option value="android">Android</option>
                   <option value="ios">iOS</option>
+                  <option value="generic">Generic (Android + iOS)</option>
                 </select>
               )}
               <select
@@ -575,7 +598,7 @@ export default function MasterLibrary({
       )}
       {tab === "unassigned" && counts.unassigned > 0 && (
         <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          These entries predate the Android/iOS split. Assign each one to a platform so it shows up in the right list.
+          Generic bugs apply to Android and iOS alike and can be copied into any project. Move one to a platform if it only happens there.
           {canManage && (
             <span className="ml-2 whitespace-nowrap">
               Or assign all:{" "}
@@ -670,7 +693,7 @@ export default function MasterLibrary({
                       {SEVERITY_LABELS[m.severity]}
                     </Badge>
                     <Badge tone={m.platform === "ios" ? "amber" : m.platform === "android" ? "green" : m.platform === "tradecast" ? "violet" : "slate"}>
-                      {m.platform ? TAB_LABEL[m.platform as Tab] : "Unassigned"}
+                      {m.platform ? TAB_LABEL[m.platform as Tab] : TAB_LABEL.unassigned}
                     </Badge>
                     {canManage ? (
                       <select
@@ -758,6 +781,15 @@ export default function MasterLibrary({
                       className="text-xs text-brand-fg hover:underline"
                     >
                       Copy to {TAB_LABEL[other(m.platform as "android" | "ios")]}
+                    </button>
+                  )}
+                  {canManage && (m.platform === "android" || m.platform === "ios") && (
+                    <button
+                      onClick={() => setPlatform(m.id, null, m.title)}
+                      className="text-xs text-brand-fg hover:underline"
+                      title="Applies to Android and iOS alike"
+                    >
+                      → Generic
                     </button>
                   )}
                   {canManage && (

@@ -100,7 +100,7 @@ export default function ImportBugsDialog({
   const [existing, setExisting] = useState<{ id: string; title: string }[]>([]);
   const [skipDupes, setSkipDupes] = useState(true);
   // The Master Library is split by platform; an import goes into one list.
-  const [platform, setPlatform] = useState<"android" | "ios" | "tradecast">(fixedPlatform ?? "android");
+  const [platform, setPlatform] = useState<"android" | "ios" | "tradecast" | "generic">(fixedPlatform ?? "android");
 
   // Pull every master-library title once so the preview can be scanned for
   // rows that duplicate an entry already in the sheet.
@@ -224,7 +224,7 @@ export default function ImportBugsDialog({
     const { error } = await supabase.from("base_page").insert(
       toImport.map((p) => ({
         source_type: "master_bug" as const,
-        platform,
+        platform: platform === "generic" ? null : platform, // generic = Generic Bugs
         title: p.title,
         description: p.description,
         steps_to_reproduce: p.steps_to_reproduce,
@@ -274,11 +274,12 @@ export default function ImportBugsDialog({
             Import into
             <select
               value={platform}
-              onChange={(e) => setPlatform(e.target.value as "android" | "ios")}
+              onChange={(e) => setPlatform(e.target.value as "android" | "ios" | "generic")}
               className="rounded-md border border-slate-300 px-2 py-1 text-sm"
             >
               <option value="android">Android list</option>
               <option value="ios">iOS list</option>
+              <option value="generic">Generic Bugs (Android + iOS)</option>
             </select>
           </label>
           )}

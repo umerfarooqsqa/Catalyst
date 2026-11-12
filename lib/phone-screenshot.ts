@@ -14,14 +14,35 @@ export const PHONE_HELPER_URL = (process.env.NEXT_PUBLIC_PHONE_HELPER_URL || "ht
 export type Phone = { serial: string; model: string };
 
 const NOT_RUNNING =
-  "Can't reach the aktrade Control Center on this PC. Start it (python web_dashboard.py), " +
-  "connect the phone over USB with USB debugging on, then try again.";
+  "Can't reach the aktrade Control Center on this PC. It starts by itself when you log in to Windows " +
+  "(task \"Aktrade Control Center\"); if it was closed, start it again (python web_dashboard.py in the " +
+  "aktrade folder), then try again.";
+const BLOCKED =
+  "Chrome is blocking this site from reaching the Control Center on this PC. Click the icon at the left " +
+  "of the address bar → Site settings → Local network access → Allow, reload, and try again.";
+
+/**
+ * Why the Control Center can't be reached: Chrome's Local Network Access permission (an https page
+ * calling localhost) when it is denied, else the Control Center isn't running.
+ */
+export async function unreachableReason(): Promise<string> {
+  for (const name of ["local-network-access", "loopback-network", "local-network"]) {
+    try {
+      const st = await navigator.permissions.query({ name } as unknown as PermissionDescriptor);
+      if (st.state === "denied") return BLOCKED;
+      break;
+    } catch {
+      // this browser doesn't know that permission name: try the next one
+    }
+  }
+  return NOT_RUNNING;
+}
 
 async function helper(path: string): Promise<Response> {
   try {
     return await fetch(`${PHONE_HELPER_URL}${path}`, { cache: "no-store" });
   } catch {
-    throw new Error(NOT_RUNNING);
+    throw new Error(await unreachableReason());
   }
 }
 
@@ -30,10 +51,16 @@ async function errorOf(res: Response): Promise<string> {
   return body?.error ?? `The Control Center answered ${res.status}.`;
 }
 
+/** The phones ready for a screenshot. None ready: throws the Control Center's reason (e.g. "tap Allow"). */
 export async function listPhones(): Promise<Phone[]> {
   const res = await helper("/adb/devices");
   if (!res.ok) throw new Error(await errorOf(res));
-  return ((await res.json()).devices ?? []) as Phone[];
+  const body = (await res.json()) as { devices?: Phone[]; reason?: string };
+  const phones = body.devices ?? [];
+  if (!phones.length) {
+    throw new Error(body.reason ?? "No phone connected: plug it in over USB, unlock it, and allow USB debugging.");
+  }
+  return phones;
 }
 
 /** The phone's current screen as a PNG file named after the bug and time. */

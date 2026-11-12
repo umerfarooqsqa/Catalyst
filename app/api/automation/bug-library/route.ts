@@ -14,8 +14,8 @@ export const dynamic = "force-dynamic";
  * either stamped with the house (`house_slug`, e.g. automation-found
  * recurring bugs) or was copied into this house's project (a bug whose
  * `base_page_id` points at it). `client_requirement` rows are not bugs and
- * are excluded. Unassigned (platform NULL) rows are excluded too -- they
- * haven't been classified Android/iOS yet.
+ * are excluded. Every Generic Bugs entry (platform NULL: applies to Android
+ * and iOS alike, decided with the user 2026-11-10) is tied to every house.
  *
  * With `version`, also returns that release's status and the REQ-14 gate
  * (lib/regression-gate.ts): whether every bug the release notes claim as
@@ -48,6 +48,11 @@ export async function GET(req: Request) {
   if (copiedErr) return NextResponse.json({ error: copiedErr.message }, { status: 500 });
   const copiedIds = [...new Set((copied ?? []).map((b) => b.base_page_id as string))];
 
+  const generic = supabase
+    .from("base_page")
+    .select(ENTRY_COLUMNS)
+    .eq("source_type", "master_bug")
+    .is("platform", null);
   const byHouse = supabase
     .from("base_page")
     .select(ENTRY_COLUMNS)
@@ -62,12 +67,13 @@ export async function GET(req: Request) {
         .eq("platform", platform)
         .in("id", copiedIds)
     : null;
-  const [a, b] = await Promise.all([byHouse, byCopy]);
+  const [a, b, g] = await Promise.all([byHouse, byCopy, generic]);
   if (a.error) return NextResponse.json({ error: a.error.message }, { status: 500 });
   if (b?.error) return NextResponse.json({ error: b.error.message }, { status: 500 });
+  if (g.error) return NextResponse.json({ error: g.error.message }, { status: 500 });
 
   const entries = new Map<string, NonNullable<typeof a.data>[number]>();
-  for (const row of [...(a.data ?? []), ...(b?.data ?? [])]) entries.set(row.id, row);
+  for (const row of [...(a.data ?? []), ...(b?.data ?? []), ...(g.data ?? [])]) entries.set(row.id, row);
 
   let release: Record<string, unknown> | null = null;
   if (version) {

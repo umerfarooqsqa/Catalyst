@@ -4,6 +4,7 @@ import { getCategories } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 import MasterLibrary from "@/components/MasterLibrary";
 import { isTradecast, seesMain } from "@/lib/tradecast";
+import { isManager } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ export default async function MasterLibraryPage() {
   if (!seesMain(await getUserPlatform())) redirect("/tradecast/library");
   const supabase = await createClient();
 
-  const [{ data: master }, categories, projects] = await Promise.all([
+  const [{ data: master }, categories, projects, waiting] = await Promise.all([
     supabase
       .from("base_page")
       .select("*")
@@ -23,6 +24,8 @@ export default async function MasterLibraryPage() {
       .limit(100),
     getCategories(),
     getProjects(),
+    // Grok's WhatsApp messages still waiting for a house (QA/admin; migration 0047)
+    isManager(level) ? supabase.rpc("whatsapp_inbox_waiting") : null,
   ]);
 
   return (
@@ -32,6 +35,7 @@ export default async function MasterLibraryPage() {
       projects={projects.filter((p) => !isTradecast(p))}
       role={level}
       userId={userId}
+      whatsappWaiting={waiting && !waiting.error ? (waiting.data ?? []).length : null}
     />
   );
 }

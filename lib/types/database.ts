@@ -1713,6 +1713,86 @@ export type Database = {
           },
         ]
       }
+      whatsapp_groups: {
+        Row: {
+          group_key: string
+          group_name: string
+          project_id: string | null
+          mixed: boolean
+          updated_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          group_key: string
+          group_name: string
+          project_id?: string | null
+          mixed?: boolean
+          updated_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          group_key?: string
+          group_name?: string
+          project_id?: string | null
+          mixed?: boolean
+          updated_by?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      whatsapp_scan_requests: {
+        Row: {
+          id: string
+          scope: "all_groups"
+          since: string
+          status: "pending" | "seen" | "done" | "cancelled" | "expired"
+          requested_by: string | null
+          requested_at: string
+          seen_at: string | null
+          completed_at: string | null
+          rows_received: number
+          note: string | null
+          notified_at: string | null
+          notify_error: string | null
+        }
+        Insert: {
+          id?: string
+          scope?: "all_groups"
+          since: string
+          status?: "pending" | "seen" | "done" | "cancelled" | "expired"
+          requested_by?: string | null
+          requested_at?: string
+          seen_at?: string | null
+          completed_at?: string | null
+          rows_received?: number
+          note?: string | null
+          notified_at?: string | null
+          notify_error?: string | null
+        }
+        Update: {
+          id?: string
+          scope?: "all_groups"
+          since?: string
+          status?: "pending" | "seen" | "done" | "cancelled" | "expired"
+          requested_by?: string | null
+          requested_at?: string
+          seen_at?: string | null
+          completed_at?: string | null
+          rows_received?: number
+          note?: string | null
+          notified_at?: string | null
+          notify_error?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_scan_requests_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       whatsapp_items: {
         Row: {
           item_id: string
@@ -2118,6 +2198,33 @@ export type Database = {
       whatsapp_inbox_status: { Args: never; Returns: Json }
       whatsapp_auto_import: { Args: never; Returns: Json }
       whatsapp_inbox_dismiss: { Args: { p_item_ids: string[] }; Returns: number }
+      team_activity: {
+        Args: { p_days?: number }
+        Returns: {
+          person_id: string
+          full_name: string
+          day: string
+          kind: "bug" | "task"
+          assigned: number
+          completed: number
+        }[]
+      }
+      whatsapp_inbox_set_sender: { Args: { p_item_ids: string[]; p_sender: string }; Returns: number }
+      whatsapp_request_scan: {
+        Args: never
+        Returns: Database["public"]["Tables"]["whatsapp_scan_requests"]["Row"]
+      }
+      whatsapp_cancel_scan: { Args: { p_id: string }; Returns: boolean }
+      whatsapp_scan_pending: { Args: never; Returns: Json }
+      whatsapp_scan_notified: { Args: { p_id: string; p_error: string | null }; Returns: undefined }
+      whatsapp_scan_report: {
+        Args: { p_id: string; p_rows: number; p_note: string | null; p_done: boolean }
+        Returns: Json
+      }
+      whatsapp_set_group: {
+        Args: { p_group: string; p_project: string | null; p_mixed?: boolean }
+        Returns: Json
+      }
       whatsapp_inbox_waiting: {
         Args: never
         Returns: {

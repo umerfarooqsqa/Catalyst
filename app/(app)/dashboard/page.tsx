@@ -4,9 +4,56 @@ import { createClient } from "@/lib/supabase/server";
 import { Card, PageHeader, Stat, Badge, EmptyState } from "@/components/ui";
 import { SEVERITY_LABELS } from "@/lib/severity";
 import { fmtDateTime, fmtRelative, titleCase } from "@/lib/format";
-import { isViewer } from "@/lib/permissions";
+import { isManager, isViewer } from "@/lib/permissions";
+import TeamSection from "@/components/TeamSection";
+import type { WorkItem } from "@/components/TeamWorkload";
 
 export const dynamic = "force-dynamic";
+
+const SEVERITY_RANK: Record<string, number> = { critical: 0, major: 1, minor: 2, trivial: 3 };
+const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
+
+/** Bugs and tasks for the Team workload view: assigned ones, plus unassigned ones still open. */
+async function loadTeamWork(supabase: Awaited<ReturnType<typeof createClient>>): Promise<WorkItem[]> {
+  const [{ data: bugs }, { data: tasks }] = await Promise.all([
+    supabase
+      .from("bugs")
+      .select("id, title, status, severity, due_date, created_at, assignee_id, projects(name), assignee:profiles!bugs_assignee_id_fkey(full_name)")
+      .or("assignee_id.not.is.null,status.neq.closed"),
+    supabase
+      .from("tasks")
+      .select("id, title, status, priority, due_date, created_at, assignee_id, projects(name), assignee:profiles!tasks_assignee_id_fkey(full_name)")
+      .or("assignee_id.not.is.null,status.neq.done"),
+  ]);
+  return [
+    ...(bugs ?? []).map((b) => ({
+      kind: "bug" as const,
+      id: b.id,
+      title: b.title,
+      status: b.status,
+      rank: SEVERITY_RANK[b.severity] ?? 9,
+      rankLabel: SEVERITY_LABELS[b.severity] ?? b.severity,
+      due_date: b.due_date,
+      created_at: b.created_at,
+      project: b.projects?.name ?? null,
+      assignee_id: b.assignee_id,
+      assignee: b.assignee?.full_name ?? null,
+    })),
+    ...(tasks ?? []).map((t) => ({
+      kind: "task" as const,
+      id: t.id,
+      title: t.title,
+      status: t.status,
+      rank: PRIORITY_RANK[t.priority] ?? 9,
+      rankLabel: `${titleCase(t.priority)} priority`,
+      due_date: t.due_date,
+      created_at: t.created_at,
+      project: t.projects?.name ?? null,
+      assignee_id: t.assignee_id,
+      assignee: t.assignee?.full_name ?? null,
+    })),
+  ];
+}
 
 export default async function DashboardPage() {
   const { userId, profile, level } = await requireProfile();
@@ -32,6 +79,9 @@ export default async function DashboardPage() {
         .order("updated_at", { ascending: false })
         .limit(8),
     ]);
+
+  // Team workload (QA/admin): every assigned or still-open bug and task, with its current status.
+  const team = isManager(level) ? await loadTeamWork(supabase) : null;
 
   const now = Date.now();
   const overdue = [
@@ -59,6 +109,9 @@ export default async function DashboardPage() {
           tone={overdue ? "red" : undefined}
         />
       </div>
+
+      {/* Who has completed how much and what is still open; activity per day (QA/admin) */}
+      {team && <TeamSection items={team} />}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <section>

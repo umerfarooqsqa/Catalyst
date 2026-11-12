@@ -480,15 +480,36 @@ export default function BugBoard({
         { key: "due_date", header: "Due Date" },
         { key: "logged_at", header: "Logged At" },
       ],
-      `${projectName.replace(/\s+/g, "-")}-bugs`,
-      "Bugs",
+      `${projectName.replace(/\s+/g, "-")}-${exportVersionLabel()}-bugs`.replace(/[\\/:*?"<>|]+/g, "_"),
+      `Bugs ${exportVersionLabel()}`.replace(/[\\/:*?[\]]+/g, "_").slice(0, 31),
       { images, imageLabelKey: "title" },
     );
+  }
+
+  // Names the exported list by the app version(s) of the bugs in it: one version → "v2.3.1",
+  // several → "v2.1.0-to-v2.3.1" (oldest to newest), none → "no-version".
+  function exportVersionLabel() {
+    const tag = (v: string) => (/^\d/.test(v) ? `v${v}` : v);
+    const versions = [...new Set(filtered.map((b) => b.release?.version).filter((v): v is string => !!v))];
+    if (versions.length === 0) return "no-version";
+    if (versions.length === 1) return tag(versions[0]);
+    // releases is newest first; a version not in it sorts as the oldest.
+    const rank = (v: string) => {
+      const i = releases.findIndex((r) => r.version === v);
+      return i === -1 ? releases.length : i;
+    };
+    versions.sort((a, b) => rank(b) - rank(a));
+    return `${tag(versions[0])}-to-${tag(versions[versions.length - 1])}`;
   }
 
   const drawerBug = bugs.find((b) => b.id === drawerId) ?? null;
   const allSelected =
     filtered.length > 0 && filtered.every((b) => selected.has(b.id));
+  // Selecting rows is for the bulk bar, which only managers get.
+  const canBulk = isManager(role);
+  // "Open" = not closed, among the bugs the filters show (so "Version: No version" + this picks the
+  // open bugs that still need a version).
+  const openShown = filtered.filter((b) => b.status !== "closed");
 
   const SortHead = ({ k, children }: { k: SortKey; children: React.ReactNode }) => (
     <button
@@ -692,6 +713,16 @@ export default function BugBoard({
           />
           Hide closed
         </label>
+        {canBulk && openShown.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setSelected(new Set(openShown.map((b) => b.id)))}
+            className="rounded-md border border-slate-300 bg-white px-2 py-1 hover:bg-slate-50"
+            title="Select every bug shown here that isn't closed, e.g. to set their version at once"
+          >
+            ☑ Select open ({openShown.length})
+          </button>
+        )}
         <ViewToggle view={view} onChange={pickView} className="ml-auto" />
       </div>
 
@@ -750,6 +781,25 @@ export default function BugBoard({
             ))}
             <option value="none">Not set</option>
           </select>
+          <select
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v) bulkPatch({ release_id: v === "none" ? null : v });
+              e.target.value = "";
+            }}
+            className="rounded-md border border-slate-300 px-1.5 py-0.5"
+            defaultValue=""
+            title="App version the selected bugs were found in. Changing it clears a bug's version confirmation."
+          >
+            <option value="">Set version…</option>
+            {releases.map((r) => (
+              <option key={r.id} value={r.id}>
+                v{r.version}
+                {r.version === currentVersion ? " (current)" : ""}
+              </option>
+            ))}
+            <option value="none">No version</option>
+          </select>
           <label className="inline-flex items-center gap-1 text-xs text-slate-600" title="Open bugs that are unassigned or still with the project developer move to the area's developer">
             <input type="checkbox" checked={moveAutoAssigned} onChange={(e) => setMoveAutoAssigned(e.target.checked)} />
             move to category person
@@ -793,6 +843,22 @@ export default function BugBoard({
                 className="cursor-pointer rounded-md border border-grid-line bg-white p-3 shadow-card transition active:scale-[0.99]"
               >
                 <div className="flex flex-wrap items-center gap-1.5">
+                  {canBulk && (
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${b.title}`}
+                      checked={selected.has(b.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() =>
+                        setSelected((prev) => {
+                          const next = new Set(prev);
+                          next.has(b.id) ? next.delete(b.id) : next.add(b.id);
+                          return next;
+                        })
+                      }
+                      className="h-4 w-4"
+                    />
+                  )}
                   <Badge
                     tone={
                       b.severity === "critical"
@@ -911,7 +977,7 @@ export default function BugBoard({
               <tr>
                 <th
                   className="rownum cursor-pointer"
-                  title={allSelected ? "Clear selection" : "Select all rows"}
+                  title={allSelected ? "Clear selection" : "Select all rows shown"}
                   onClick={() =>
                     setSelected(
                       allSelected
@@ -920,7 +986,23 @@ export default function BugBoard({
                     )
                   }
                 >
-                  {allSelected ? "✓" : "#"}
+                  {canBulk ? (
+                    <input
+                      type="checkbox"
+                      readOnly
+                      tabIndex={-1}
+                      aria-label="Select all rows shown"
+                      checked={allSelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = !allSelected && filtered.some((b) => selected.has(b.id));
+                      }}
+                      className="pointer-events-none align-middle"
+                    />
+                  ) : allSelected ? (
+                    "✓"
+                  ) : (
+                    "#"
+                  )}
                 </th>
                 <th className="freeze min-w-[14rem]">
                   <SortHead k="title">Title</SortHead>
@@ -957,9 +1039,22 @@ export default function BugBoard({
                     <td
                       className="rownum cursor-pointer select-none"
                       onClick={(e) => toggleRow(r, e.shiftKey)}
-                      title="Click to select row"
+                      title={`Row ${r + 1}: click to select (Shift+click selects a range)`}
                     >
-                      {rowSel ? "✓" : r + 1}
+                      {canBulk ? (
+                        <input
+                          type="checkbox"
+                          readOnly
+                          tabIndex={-1}
+                          aria-label={`Select ${b.title}`}
+                          checked={rowSel}
+                          className="pointer-events-none align-middle"
+                        />
+                      ) : rowSel ? (
+                        "✓"
+                      ) : (
+                        r + 1
+                      )}
                     </td>
 
                     <td {...grid.cellProps(r, 0, "freeze")}>
