@@ -31,15 +31,16 @@ type NewPlatform = EntryPlatform | "generic";
 const dbPlatform = (p: NewPlatform): EntryPlatform | null => (p === "generic" ? null : p);
 const other = (p: "android" | "ios") => (p === "android" ? "ios" : "android");
 
-/** The Android list connects only to Android projects and the iOS list only to
- * iOS projects. Generic Bugs (platform NULL) apply to Android and iOS alike, so
- * they can go to any project. Projects with no platform set never match
- * an Android/iOS entry. */
+/** The Android list connects only to Android projects, the iOS list only to
+ * iOS projects and the Tradecast list only to Tradecast projects. Generic Bugs
+ * (platform NULL) apply to Android and iOS alike, so they can go to any project
+ * except Tradecast ones. Projects with no platform set never match a
+ * platform-bound entry. */
 function projectMatchesEntry(
   p: { platform: string | null },
   m: { platform: string | null },
 ): boolean {
-  return !m.platform || p.platform === m.platform;
+  return m.platform ? p.platform === m.platform : p.platform !== "tradecast";
 }
 
 export default function MasterLibrary({
@@ -50,6 +51,7 @@ export default function MasterLibrary({
   role,
   userId,
   whatsappWaiting,
+  showTradecast = false,
 }: {
   /**
    * "tradecast": the Tradecast Bug Library (0064), one list of Tradecast entries, kept apart from
@@ -63,6 +65,12 @@ export default function MasterLibrary({
   userId: string;
   /** Grok's WhatsApp messages waiting for a house; null = not QA/admin or no inbox yet. */
   whatsappWaiting: number | null;
+  /**
+   * Main library only: also show a Tradecast tab (2026-11-12, decided with the user) for people
+   * who can see Tradecast (admins, QA, cross-platform categories). Its entries copy only into
+   * Tradecast projects, which the page then passes too.
+   */
+  showTradecast?: boolean;
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -74,8 +82,14 @@ export default function MasterLibrary({
   // Android and iOS bugs are kept in separate lists; "unassigned" holds
   // entries nobody has classified yet (nothing is guessed).
   const tradecastArea = area === "tradecast";
-  const tabs: Tab[] = tradecastArea ? ["tradecast"] : ["android", "ios", "unassigned"];
+  const tabs: Tab[] = tradecastArea
+    ? ["tradecast"]
+    : showTradecast
+      ? ["android", "ios", "unassigned", "tradecast"]
+      : ["android", "ios", "unassigned"];
   const [tab, setTab] = useState<Tab>(tradecastArea ? "tradecast" : "android");
+  // the Tradecast list is open (its own page, or its tab here): new entries and imports go there
+  const onTradecast = tradecastArea || tab === "tradecast";
   const [counts, setCounts] = useState<Record<Tab, number>>({ android: 0, ios: 0, unassigned: 0, tradecast: 0 });
   const [np, setNp] = useState<NewPlatform>(tradecastArea ? "tradecast" : "android");
   const [q, setQ] = useState("");
@@ -439,7 +453,7 @@ export default function MasterLibrary({
         <ImportBugsDialog
           categories={categories}
           userId={userId}
-          fixedPlatform={tradecastArea ? "tradecast" : undefined}
+          fixedPlatform={onTradecast ? "tradecast" : undefined}
           onClose={() => setShowImport(false)}
           onDone={(n) => {
             setShowImport(false);
@@ -508,7 +522,7 @@ export default function MasterLibrary({
               className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-xs"
             />
             <div className="grid gap-2 sm:grid-cols-5">
-              {tradecastArea ? (
+              {onTradecast ? (
                 <span className="flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-sm text-slate-600">
                   Tradecast
                 </span>
@@ -598,7 +612,7 @@ export default function MasterLibrary({
       )}
       {tab === "unassigned" && counts.unassigned > 0 && (
         <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          Generic bugs apply to Android and iOS alike and can be copied into any project. Move one to a platform if it only happens there.
+          Generic bugs apply to Android and iOS alike and can be copied into any Android or iOS project. Move one to a platform if it only happens there.
           {canManage && (
             <span className="ml-2 whitespace-nowrap">
               Or assign all:{" "}
@@ -611,6 +625,11 @@ export default function MasterLibrary({
               </button>
             </span>
           )}
+        </p>
+      )}
+      {!tradecastArea && tab === "tradecast" && (
+        <p className="mb-3 rounded-md bg-violet-50 px-3 py-2 text-sm text-violet-800">
+          Tradecast&apos;s own bugs, the same list as the Tradecast Bug Library. They copy only into Tradecast projects.
         </p>
       )}
 
