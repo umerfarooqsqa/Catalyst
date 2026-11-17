@@ -23,6 +23,7 @@ import LocalTime from "@/components/LocalTime";
 import AssigneeOptions from "@/components/AssigneeOptions";
 import { areaPatch, categoryOf, isArea, suggestArea } from "@/lib/bug-area";
 import { useRoleCategories } from "@/components/RoleCategories";
+import { J2F, sendBugToJ2f } from "@/lib/java-to-flutter";
 import type { AreaDevelopers, BugArea } from "@/lib/bug-area";
 import type { BugCategory } from "@/lib/types/models";
 
@@ -139,7 +140,7 @@ export default function BugDrawer({
     createClient()
       .from("base_page")
       .select("id")
-      .eq("collection", "java_to_flutter")
+      .eq("collection", J2F)
       .eq("source_bug_id", bug.id)
       .maybeSingle()
       .then(({ data }) => {
@@ -152,48 +153,14 @@ export default function BugDrawer({
     };
   }, [bug.id, role]);
 
-  // Sends this bug to the Bug Library's "Java to Flutter" list: a copy (no live link, like every
-  // library copy) that keeps the project's platform and remembers the bug and project it came from.
-  // A bug goes there once (unique index); the list is QA/admin's to fill (RLS base_page_qa_insert).
+  // Sends this bug to the Bug Library's "Java to Flutter" list (lib/java-to-flutter.ts).
   async function sendToJ2f() {
     setErr(null);
     setJ2fState("busy");
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from("base_page")
-      .insert({
-        source_type: "master_bug",
-        collection: "java_to_flutter",
-        platform: projPlatform,
-        title: bug.title,
-        description: bug.description,
-        steps_to_reproduce: bug.steps_to_reproduce,
-        severity: bug.severity,
-        area: bug.area,
-        category_id: bug.category_id,
-        created_by: userId,
-        source_bug_id: bug.id,
-        source_project_id: bug.project_id,
-      })
-      .select("id")
-      .single();
+    const res = await sendBugToJ2f(createClient(), bug, projPlatform, userId);
     setJ2fState("idle");
-    if (error) {
-      if (error.code === "23505") {
-        // already there (sent from another tab meanwhile)
-        const { data: had } = await supabase
-          .from("base_page")
-          .select("id")
-          .eq("collection", "java_to_flutter")
-          .eq("source_bug_id", bug.id)
-          .maybeSingle();
-        setJ2fEntry(had?.id ?? "sent");
-        return;
-      }
-      setErr(error.message);
-      return;
-    }
-    setJ2fEntry(data.id);
+    if (res.ok) setJ2fEntry("sent");
+    else setErr(res.error);
   }
 
   async function sendToAutomation() {

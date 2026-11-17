@@ -23,6 +23,7 @@ import AssigneeOptions from "@/components/AssigneeOptions";
 import ClassifyAreaDialog from "@/components/ClassifyAreaDialog";
 import { NO_DEVELOPERS, areaPatch, isArea, peopleForArea, shortLabel, skillsOf } from "@/lib/bug-area";
 import { useRoleCategories } from "@/components/RoleCategories";
+import { bugsSentToJ2f, sendBugToJ2f } from "@/lib/java-to-flutter";
 import type { AreaDevelopers, BugArea } from "@/lib/bug-area";
 import { SEVERITY_LABELS } from "@/lib/severity";
 import { fmtDateTime, fmtTimestamp, titleCase } from "@/lib/format";
@@ -507,6 +508,28 @@ export default function BugBoard({
     filtered.length > 0 && filtered.every((b) => selected.has(b.id));
   // Selecting rows is for the bulk bar, which only managers get.
   const canBulk = isManager(role);
+
+  // The Bug Library's "Java to Flutter" list (migration 0071): which of this project's bugs are in it,
+  // re-read when the drawer closes (it can send one too). QA/admin only.
+  const [j2fSent, setJ2fSent] = useState<Set<string>>(new Set());
+  const [j2fBusy, setJ2fBusy] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isManager(role) || drawerId) return;
+    let gone = false;
+    bugsSentToJ2f(createClient(), projectId).then((s) => {
+      if (!gone) setJ2fSent(s);
+    });
+    return () => {
+      gone = true;
+    };
+  }, [projectId, role, drawerId]);
+  async function sendCardToJ2f(b: BugWithJoins) {
+    setJ2fBusy(b.id);
+    const res = await sendBugToJ2f(createClient(), b, projectPlatform, userId);
+    setJ2fBusy(null);
+    if (res.ok) setJ2fSent((s) => new Set(s).add(b.id));
+    else window.alert(`Could not send "${b.title}" to Java to Flutter: ${res.error}`);
+  }
   // "Open" = not closed, among the bugs the filters show (so "Version: No version" + this picks the
   // open bugs that still need a version).
   const openShown = filtered.filter((b) => b.status !== "closed");
@@ -943,6 +966,25 @@ export default function BugBoard({
                       {overdue ? " · overdue" : ""}
                     </span>
                   )}
+                  {canBulk &&
+                    (j2fSent.has(b.id) ? (
+                      <span
+                        className="rounded-md bg-sky-50 px-2 py-1.5 text-[12px] font-medium text-sky-800"
+                        title="This bug is in the Bug Library's Java to Flutter list"
+                      >
+                        ✓ In Java to Flutter
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => sendCardToJ2f(b)}
+                        disabled={j2fBusy === b.id}
+                        className="rounded-md border border-sky-300 bg-white px-2.5 py-1.5 text-[12px] font-medium text-sky-800 hover:bg-sky-50 disabled:opacity-50"
+                        title="Copy this bug into the Bug Library's Java to Flutter list"
+                      >
+                        {j2fBusy === b.id ? "Sending…" : "Send to Java to Flutter"}
+                      </button>
+                    ))}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 border-t border-slate-100 pt-2 text-[12px] text-slate-500">
                   <span>Reporter: {memberName(b.created_by)}</span>
