@@ -253,6 +253,9 @@ export type Database = {
       base_page: {
         Row: {
           house_slug: string | null
+          collection: string | null
+          source_bug_id: string | null
+          source_project_id: string | null
           platform: string | null
           recurring_count: number
           category_id: string | null
@@ -274,6 +277,9 @@ export type Database = {
         }
         Insert: {
           house_slug?: string | null
+          collection?: string | null
+          source_bug_id?: string | null
+          source_project_id?: string | null
           platform?: string | null
           recurring_count?: number
           category_id?: string | null
@@ -295,6 +301,9 @@ export type Database = {
         }
         Update: {
           house_slug?: string | null
+          collection?: string | null
+          source_bug_id?: string | null
+          source_project_id?: string | null
           platform?: string | null
           recurring_count?: number
           category_id?: string | null

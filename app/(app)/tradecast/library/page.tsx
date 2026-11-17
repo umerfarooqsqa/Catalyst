@@ -27,6 +27,7 @@ export default async function TradecastLibraryPage() {
       .select("*")
       .eq("source_type", "master_bug")
       .eq("platform", TRADECAST)
+      .is("collection", null) // Java to Flutter entries (0071) are listed on /master-library
       .order("times_reused", { ascending: false })
       .limit(100),
     getCategories(),

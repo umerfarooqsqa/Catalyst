@@ -24,6 +24,7 @@ export default async function MasterLibraryPage() {
       .select("*")
       .eq("source_type", "master_bug")
       .eq("platform", "android") // default tab; the client switches lists
+      .is("collection", null) // Java to Flutter entries (0071) have their own tab
       .order("times_reused", { ascending: false })
       .limit(100),
     getCategories(),

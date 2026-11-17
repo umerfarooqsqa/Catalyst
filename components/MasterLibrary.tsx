@@ -23,8 +23,18 @@ import type {
   Severity,
 } from "@/lib/types/models";
 
-type Tab = "android" | "ios" | "unassigned" | "tradecast";
-const TAB_LABEL: Record<Tab, string> = { android: "Android", ios: "iOS", unassigned: "Generic Bugs", tradecast: "Tradecast" };
+type Tab = "android" | "ios" | "unassigned" | "tradecast" | "j2f";
+const TAB_LABEL: Record<Tab, string> = {
+  android: "Android",
+  ios: "iOS",
+  unassigned: "Generic Bugs",
+  tradecast: "Tradecast",
+  j2f: "Java to Flutter",
+};
+/** base_page.collection of the "Java to Flutter" list (migration 0071). Its entries keep their source
+ * project's platform; the platform tabs show only entries with no collection. */
+const J2F = "java_to_flutter";
+const EMPTY_COUNTS: Record<Tab, number> = { android: 0, ios: 0, unassigned: 0, tradecast: 0, j2f: 0 };
 type EntryPlatform = "android" | "ios" | "tradecast";
 /** Platform picked for a new entry; "generic" = Generic Bugs (platform NULL). */
 type NewPlatform = EntryPlatform | "generic";
@@ -85,12 +95,13 @@ export default function MasterLibrary({
   const tabs: Tab[] = tradecastArea
     ? ["tradecast"]
     : showTradecast
-      ? ["android", "ios", "unassigned", "tradecast"]
-      : ["android", "ios", "unassigned"];
+      ? ["android", "ios", "unassigned", "j2f", "tradecast"]
+      : ["android", "ios", "unassigned", "j2f"];
   const [tab, setTab] = useState<Tab>(tradecastArea ? "tradecast" : "android");
   // the Tradecast list is open (its own page, or its tab here): new entries and imports go there
   const onTradecast = tradecastArea || tab === "tradecast";
-  const [counts, setCounts] = useState<Record<Tab, number>>({ android: 0, ios: 0, unassigned: 0, tradecast: 0 });
+  const [counts, setCounts] = useState<Record<Tab, number>>(EMPTY_COUNTS);
+  const onJ2f = tab === "j2f";
   const [np, setNp] = useState<NewPlatform>(tradecastArea ? "tradecast" : "android");
   const [q, setQ] = useState("");
   const [fSeverity, setFSeverity] = useState("");
@@ -124,7 +135,11 @@ export default function MasterLibrary({
         .from("base_page")
         .select("*")
         .eq("source_type", "master_bug");
-      query = tab === "unassigned" ? query.is("platform", null) : query.eq("platform", tab);
+      query = tab === "j2f"
+        ? query.eq("collection", J2F)
+        : tab === "unassigned"
+          ? query.is("collection", null).is("platform", null)
+          : query.is("collection", null).eq("platform", tab);
       if (q.trim()) {
         const s = `%${q.trim()}%`;
         query = query.or(
@@ -145,7 +160,11 @@ export default function MasterLibrary({
           .from("base_page")
           .select("*")
           .eq("source_type", "master_bug");
-        allQ = tab === "unassigned" ? allQ.is("platform", null) : allQ.eq("platform", tab);
+        allQ = tab === "j2f"
+          ? allQ.eq("collection", J2F)
+          : tab === "unassigned"
+            ? allQ.is("collection", null).is("platform", null)
+            : allQ.is("collection", null).eq("platform", tab);
         const { data: all } = await allQ;
         const tagMatches = (all ?? []).filter((m) =>
           (m.tags ?? []).some((tg) => tg.toLowerCase().includes(s)),
@@ -163,11 +182,14 @@ export default function MasterLibrary({
   useEffect(() => {
     supabase
       .from("base_page")
-      .select("platform")
+      .select("platform, collection")
       .eq("source_type", "master_bug")
       .then(({ data }) => {
-        const c: Record<Tab, number> = { android: 0, ios: 0, unassigned: 0, tradecast: 0 };
-        for (const r of data ?? []) c[(r.platform as EntryPlatform | null) ?? "unassigned"]++;
+        const c: Record<Tab, number> = { ...EMPTY_COUNTS };
+        for (const r of data ?? []) {
+          if (r.collection === J2F) c.j2f++;
+          else c[(r.platform as EntryPlatform | null) ?? "unassigned"]++;
+        }
         setCounts(c);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -175,7 +197,7 @@ export default function MasterLibrary({
 
   // New entries default to the tab you're looking at.
   useEffect(() => {
-    setNp(tab === "unassigned" ? "generic" : tab);
+    setNp(tab === "unassigned" ? "generic" : tab === "j2f" ? "android" : tab);
   }, [tab]);
 
   // Live duplicate check for the "New entry" form — as the user types a
@@ -197,6 +219,7 @@ export default function MasterLibrary({
         .select("*")
         .eq("source_type", "master_bug")
         .filter("platform", np === "generic" ? "is" : "eq", np === "generic" ? null : np)
+        .filter("collection", onJ2f ? "eq" : "is", onJ2f ? J2F : null)
         .ilike("title", `%${query}%`)
         .limit(5);
 
@@ -217,6 +240,7 @@ export default function MasterLibrary({
           .select("*")
           .eq("source_type", "master_bug")
           .filter("platform", np === "generic" ? "is" : "eq", np === "generic" ? null : np)
+          .filter("collection", onJ2f ? "eq" : "is", onJ2f ? J2F : null)
           .or(words.map((w) => `title.ilike.%${w}%`).join(","))
           .limit(8);
         byWord = data ?? [];
@@ -228,8 +252,9 @@ export default function MasterLibrary({
     }, 250);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nt, showNew, np]);
+  }, [nt, showNew, np, onJ2f]);
 
+  const projectName = (id: string) => projects.find((p) => p.id === id)?.name ?? "a project";
   const catName = (id: string | null) =>
     id ? (categories.find((c) => c.id === id)?.name ?? "—") : "—";
 
@@ -286,6 +311,7 @@ export default function MasterLibrary({
     const { error } = await supabase.from("base_page").insert({
       source_type: "master_bug",
       platform: dbPlatform(np),
+      collection: onJ2f ? J2F : null,
       title: nt.trim(),
       description: nd.trim() || null,
       steps_to_reproduce: ns.trim() || null,
@@ -330,6 +356,7 @@ export default function MasterLibrary({
     const { error } = await supabase
       .from("base_page")
       .update({ platform })
+      .is("collection", null)
       .eq("source_type", "master_bug")
       .is("platform", null);
     if (error) return setErr(error.message);
@@ -347,6 +374,7 @@ export default function MasterLibrary({
     const { error } = await supabase.from("base_page").insert({
       source_type: "master_bug",
       platform,
+      collection: mb.collection,
       title: mb.title,
       description: mb.description,
       steps_to_reproduce: mb.steps_to_reproduce,
@@ -357,7 +385,7 @@ export default function MasterLibrary({
       created_by: userId,
     });
     if (error) return setErr(error.message);
-    setMsg(`Copied "${mb.title}" to ${TAB_LABEL[platform]}.`);
+    setMsg(`Copied "${mb.title}" to ${TAB_LABEL[platform]}${mb.collection === J2F ? ` (in ${TAB_LABEL.j2f})` : ""}.`);
     setRefetchKey((k) => k + 1);
     router.refresh();
   }
@@ -385,6 +413,7 @@ export default function MasterLibrary({
     exportRows(
       rows.map((m) => ({
         platform: m.platform ? TAB_LABEL[m.platform as Tab] : TAB_LABEL.unassigned,
+        source: m.source_project_id ? projectName(m.source_project_id) : "",
         title: m.title,
         description: m.description,
         steps_to_reproduce: m.steps_to_reproduce,
@@ -396,6 +425,7 @@ export default function MasterLibrary({
       })),
       [
         { key: "platform", header: "Platform" },
+        ...(tab === "j2f" ? [{ key: "source", header: "Sent From Project" }] : []),
         { key: "title", header: "Title" },
         { key: "description", header: "Description" },
         { key: "steps_to_reproduce", header: "Steps to Reproduce" },
@@ -454,6 +484,7 @@ export default function MasterLibrary({
           categories={categories}
           userId={userId}
           fixedPlatform={onTradecast ? "tradecast" : undefined}
+          collection={onJ2f ? J2F : undefined}
           onClose={() => setShowImport(false)}
           onDone={(n) => {
             setShowImport(false);
@@ -627,6 +658,13 @@ export default function MasterLibrary({
           )}
         </p>
       )}
+      {onJ2f && (
+        <p className="mb-3 rounded-md bg-sky-50 px-3 py-2 text-sm text-sky-800">
+          Bugs sent here from projects (bug drawer: &ldquo;Send to Java to Flutter&rdquo;), to check again in the Flutter
+          apps. Each one is a copy: editing it never changes the project&apos;s bug. They copy into projects of their
+          own platform.
+        </p>
+      )}
       {!tradecastArea && tab === "tradecast" && (
         <p className="mb-3 rounded-md bg-violet-50 px-3 py-2 text-sm text-violet-800">
           Tradecast&apos;s own bugs, the same list as the Tradecast Bug Library. They copy only into Tradecast projects.
@@ -755,6 +793,20 @@ export default function MasterLibrary({
                         #{t}
                       </span>
                     ))}
+                    {m.collection === J2F && m.source_project_id && (
+                      <span className="text-xs text-slate-500">
+                        from {projectName(m.source_project_id)}
+                        {m.source_bug_id && (
+                          <>
+                            {" "}
+                            <a href={`/bugs/${m.source_bug_id}`} className="text-brand-fg hover:underline">
+                              (open bug)
+                            </a>
+                          </>
+                        )}
+                        {" · "}
+                      </span>
+                    )}
                     <span className="text-xs text-slate-400" suppressHydrationWarning>
                       reused {m.times_reused}×
                       {m.last_reused_at

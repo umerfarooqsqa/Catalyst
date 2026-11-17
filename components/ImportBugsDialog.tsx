@@ -72,6 +72,7 @@ export default function ImportBugsDialog({
   categories,
   userId,
   fixedPlatform,
+  collection,
   onClose,
   onDone,
 }: {
@@ -79,6 +80,8 @@ export default function ImportBugsDialog({
   userId: string;
   /** "tradecast": importing into the Tradecast Bug Library (0064); no list to choose */
   fixedPlatform?: "tradecast";
+  /** Import into a list of its own (base_page.collection, e.g. "java_to_flutter", migration 0071). */
+  collection?: string;
   onClose: () => void;
   onDone: (count: number) => void;
 }) {
@@ -225,6 +228,7 @@ export default function ImportBugsDialog({
       toImport.map((p) => ({
         source_type: "master_bug" as const,
         platform: platform === "generic" ? null : platform, // generic = Generic Bugs
+        collection: collection ?? null,
         title: p.title,
         description: p.description,
         steps_to_reproduce: p.steps_to_reproduce,

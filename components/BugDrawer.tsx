@@ -82,6 +82,9 @@ export default function BugDrawer({
   const [shotBusy, setShotBusy] = useState(false);
   const [phoneChoice, setPhoneChoice] = useState<Phone[] | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "busy" | "done">("idle");
+  // The Bug Library's "Java to Flutter" list (migration 0071): the entry this bug was sent to, if any.
+  const [j2fEntry, setJ2fEntry] = useState<string | null>(null);
+  const [j2fState, setJ2fState] = useState<"checking" | "idle" | "busy">("checking");
   // Automation: which machine tests this bug (Android -> Windows, iOS -> Mac)
   // is decided by its project's platform; the job's status is tracked here.
   const [projPlatform, setProjPlatform] = useState<string | null>(null);
@@ -128,6 +131,70 @@ export default function BugDrawer({
   useEffect(() => {
     loadAutomation();
   }, [loadAutomation]);
+
+  useEffect(() => {
+    if (!isManager(role)) return;
+    let gone = false;
+    setJ2fState("checking");
+    createClient()
+      .from("base_page")
+      .select("id")
+      .eq("collection", "java_to_flutter")
+      .eq("source_bug_id", bug.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (gone) return;
+        setJ2fEntry(data?.id ?? null);
+        setJ2fState("idle");
+      });
+    return () => {
+      gone = true;
+    };
+  }, [bug.id, role]);
+
+  // Sends this bug to the Bug Library's "Java to Flutter" list: a copy (no live link, like every
+  // library copy) that keeps the project's platform and remembers the bug and project it came from.
+  // A bug goes there once (unique index); the list is QA/admin's to fill (RLS base_page_qa_insert).
+  async function sendToJ2f() {
+    setErr(null);
+    setJ2fState("busy");
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("base_page")
+      .insert({
+        source_type: "master_bug",
+        collection: "java_to_flutter",
+        platform: projPlatform,
+        title: bug.title,
+        description: bug.description,
+        steps_to_reproduce: bug.steps_to_reproduce,
+        severity: bug.severity,
+        area: bug.area,
+        category_id: bug.category_id,
+        created_by: userId,
+        source_bug_id: bug.id,
+        source_project_id: bug.project_id,
+      })
+      .select("id")
+      .single();
+    setJ2fState("idle");
+    if (error) {
+      if (error.code === "23505") {
+        // already there (sent from another tab meanwhile)
+        const { data: had } = await supabase
+          .from("base_page")
+          .select("id")
+          .eq("collection", "java_to_flutter")
+          .eq("source_bug_id", bug.id)
+          .maybeSingle();
+        setJ2fEntry(had?.id ?? "sent");
+        return;
+      }
+      setErr(error.message);
+      return;
+    }
+    setJ2fEntry(data.id);
+  }
 
   async function sendToAutomation() {
     if (!projPlatform) return;
@@ -671,6 +738,28 @@ export default function BugDrawer({
                     : copyState === "busy"
                       ? "Copying…"
                       : `Copy to ${siblingProject.platform === "ios" ? "iOS" : "Android"}`}
+                </Button>
+              )}
+            </div>
+          )}
+          {isManager(role) && (
+            <div className="flex flex-wrap items-center gap-2">
+              {j2fEntry ? (
+                <span className="text-sm text-slate-600">
+                  ✓ In the Bug Library&apos;s{" "}
+                  <a href="/master-library" className="font-medium text-brand-fg hover:underline">
+                    Java to Flutter
+                  </a>{" "}
+                  list
+                </span>
+              ) : (
+                <Button
+                  variant="secondary"
+                  onClick={sendToJ2f}
+                  disabled={j2fState !== "idle" || !autoReady}
+                  title="Copy this bug into the Bug Library's Java to Flutter list"
+                >
+                  {j2fState === "busy" ? "Sending…" : "Send to Java to Flutter"}
                 </Button>
               )}
             </div>
